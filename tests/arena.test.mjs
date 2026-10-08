@@ -91,7 +91,7 @@ async function fixture(t, { maxIncoming = 2 } = {}) {
       token, body: { name, base64: pdf.toString('base64') },
     });
   }
-  async function createTeam(name, members, roles = ['attack', 'defense', 'defense']) {
+  async function createTeam(name, members, roles = members.map((_, index) => index ? 'defense' : 'attack')) {
     const before = new Set((await snapshot()).teams.map(team => team.id));
     ok(await action(activity.token, { type: 'team-create', name, memberIds: members.map(member => member.participantId) }));
     const team = (await snapshot()).teams.find(team => !before.has(team.id));
@@ -136,13 +136,13 @@ async function fixture(t, { maxIncoming = 2 } = {}) {
   };
 }
 
-test('teacher permissions, team sizes, PDF validation and readiness protect the activity', async t => {
+test('teacher permissions, team membership, PDF validation and readiness protect the activity', async t => {
   const f = await fixture(t);
   const members = await Promise.all([0, 1, 2, 3].map(index => f.student(`Pessoa reservada ${index}`)));
   f.denied(await f.action(members[0].token, {
     type: 'team-create', name: 'Sem autorização', memberIds: members.slice(0, 2).map(member => member.participantId),
   }));
-  for (const count of [1, 4]) {
+  for (const count of [0]) {
     f.denied(await f.action(f.activity.token, {
       type: 'team-create', name: 'Tamanho inválido', memberIds: members.slice(0, count).map(member => member.participantId),
     }));
@@ -166,6 +166,28 @@ test('teacher permissions, team sizes, PDF validation and readiness protect the 
   f.ok(await f.action(f.activity.token, { type: 'start', minutes: 10 }));
   f.denied(await f.action(members[0].token, { type: 'finish' }));
   f.denied(await f.document(first.id));
+});
+
+test('groups accept one, four or eight members and still require attacker and defender before starting', async t => {
+  const f = await fixture(t);
+  const people = await Promise.all(Array.from({ length: 13 }, (_, index) => f.student('Integrante ' + index)));
+  f.denied(await f.action(f.activity.token, { type: 'team-create', name: 'Repetido', memberIds: [people[0].participantId, people[0].participantId] }));
+  f.denied(await f.action(f.activity.token, { type: 'team-create', name: 'Inexistente', memberIds: ['not-a-participant'] }));
+  const solo = await f.createTeam('Em organização', people.slice(0, 1));
+  const large = await f.createTeam('Grupo de oito', people.slice(1, 9));
+  const four = await f.createTeam('Grupo de quatro', people.slice(9));
+  const state = await f.snapshot();
+  assert.deepEqual(state.teams.map(team => team.memberIds.length), [1, 8, 4]);
+  assert.equal(new Set(state.teams.flatMap(team => team.memberIds)).size, 13);
+  f.denied(await f.action(f.activity.token, { type: 'team-create', name: 'Já atribuído', memberIds: [people[1].participantId] }));
+  for (const team of [solo, large, four]) f.ok(await f.document(team.id));
+  f.ok(await f.action(f.activity.token, { type: 'prepare' }));
+  const rejected = f.denied(await f.action(f.activity.token, { type: 'start', minutes: 10 }));
+  assert.match(rejected.data.error, /Em organização precisa de pelo menos um atacante e um defensor/);
+  f.ok(await f.action(f.activity.token, { type: 'team-delete', teamId: solo.id }));
+  f.ok(await f.action(f.activity.token, { type: 'start', minutes: 10 }));
+  await f.capture(large.members[0], four);
+  assert.equal((await f.snapshot()).teams.find(team => team.id === large.id).score, 50);
 });
 
 test('roles, incoming limits and public snapshots isolate participants and private documents', async t => {

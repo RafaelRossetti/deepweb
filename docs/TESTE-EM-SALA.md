@@ -16,7 +16,7 @@ Se o Node não estiver no PATH desta máquina, use o runtime disponível no Code
 & 'C:\Users\Rafael Rossetti\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe' --test tests/arena.test.mjs
 ```
 
-O resultado esperado é todos os testes passarem. A suíte verifica autorização de professor e papéis, grupos com dois ou três integrantes, PDFs de até 3 MiB, início condicionado à preparação de todos, privacidade, limites de invasões, captura concorrente sem pontos duplicados, defesas por incidente, download de uso único, encerramento, prorrogação, avisos e persistência. Também simula 60 participantes, 20 trios e ataques simultâneos sem perder integrantes ou pontuação. Esse teste valida concorrência funcional; não mede a capacidade da conexão Wi-Fi ou do equipamento da escola.
+O resultado esperado é todos os testes passarem. A suíte verifica autorização de professor e papéis, grupos com diferentes quantidades de integrantes, PDFs de até 3 MiB, início condicionado à preparação de todos, privacidade, limites de invasões, captura concorrente sem pontos duplicados, defesas por incidente, download de uso único, encerramento, prorrogação, avisos e persistência. Também simula 60 participantes, 20 trios e ataques simultâneos sem perder integrantes ou pontuação. Esse teste valida concorrência funcional; não mede a capacidade da conexão Wi-Fi ou do equipamento da escola.
 
 ## Ensaio com navegadores
 
@@ -34,7 +34,9 @@ O resultado esperado é todos os testes passarem. A suíte verifica autorizaçã
 Confira também:
 
 - Clique em `scan` uma vez e execute. O botão deve continuar indisponível após atualizar a página; uma nova execução exige digitação. Tente um comando com erro e confira que não avança. Tente colar e arrastar texto no campo da rodada.
+- Prepare o próximo comando durante o intervalo e segure Enter até o contador terminar. Nenhuma execução deve ficar na fila ou acontecer automaticamente. Solte Enter e pressione novamente: deve executar uma vez. Repita o teste na defesa, incluindo o Enter com foco no botão Executar.
 - Use dois atacantes contra o mesmo grupo. Uma defesa deve afetar somente um deles. Use **Trocar alvo** e confira que a conexão do outro atacante permanece intacta.
+- Crie um grupo com quatro ou mais integrantes. Todos devem ser selecionados e aparecer na equipe. Um grupo com apenas um integrante pode ser organizado, mas não pode iniciar sem atender aos papéis de ataque e defesa.
 - Configure dois defensores na mesma equipe e execute respostas simultâneas. Eles devem compartilhar a reserva, sem gerar cargas ou pontos duplicados.
 - Capture o mesmo PDF com duas equipes diferentes. O professor deve ver dois vazamentos e os nomes dessas equipes no detalhamento. Repetir a captura pela mesma equipe deve falhar.
 - Consulte os comandos por integrante e as origens da pontuação no painel de métricas. A tela pública deve mostrar equipes e ranking, sem os nomes dos alunos.

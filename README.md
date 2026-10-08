@@ -18,15 +18,15 @@ Para representar vários alunos no mesmo computador, use perfis ou janelas anôn
 ## Jornada
 
 1. Professor abre a atividade e compartilha o código.
-2. Os alunos entram com nome; o professor seleciona dois ou três e nomeia cada equipe.
-3. Os integrantes escolhem ataque ou defesa. Cada equipe precisa de pelo menos um atacante e um defensor; o terceiro reforça uma dessas funções.
+2. Os alunos entram com nome; o professor seleciona quantos integrantes desejar e nomeia cada equipe.
+3. Os integrantes escolhem ataque ou defesa. Cada equipe precisa de pelo menos um atacante e um defensor; os demais integrantes reforçam uma dessas funções.
 4. Professor libera a preparação e envia um PDF de até **3 MiB** por equipe enquanto os alunos estudam e ensaiam os comandos.
 5. Quando todos os PDFs e papéis estão prontos, escolhe a duração e inicia.
 6. Atacantes executam `scan` → `inspect` → `access` → `extract`. Defensores selecionam **uma conexão** e a resposta adequada à etapa: `reroute` após reconhecimento, `block` após inspeção ou `revoke` após acesso. Um desvio representa um IP virtual e afeta somente a conexão selecionada.
 7. Professor pode transmitir avisos centrais, enviar efeitos visuais a um grupo, consultar métricas por integrante, acrescentar tempo e encerrar. O prazo é validado pelo servidor.
 8. O ranking final aparece nos participantes e na tela pública.
 
-Até **20 equipes e 60 participantes**. Por padrão, cada equipe recebe no máximo dois ataques simultâneos. Um atacante mantém uma conexão por vez; a captura conclui sua conexão e permite escolher outro alvo. **Trocar alvo** encerra somente a conexão daquele atacante e reinicia seu progresso, preservando o intervalo entre ações.
+Até **20 equipes e 60 participantes** no total. A formação aceita qualquer quantidade de integrantes por grupo; para iniciar, cada grupo precisa de pelo menos um atacante e um defensor, com todos os papéis escolhidos. Por padrão, cada equipe recebe no máximo dois ataques simultâneos. Um atacante mantém uma conexão por vez; a captura conclui sua conexão e permite escolher outro alvo. **Trocar alvo** encerra somente a conexão daquele atacante e reinicia seu progresso, preservando o intervalo entre ações.
 
 ## Comandos e equilíbrio
 
@@ -36,6 +36,8 @@ Cada jogador pode clicar uma vez em cada comando durante a atividade. O botão p
 - Defesa: **5 segundos por jogador**, inclusive ao mudar de conexão. Cada resposta válida consome uma carga da reserva compartilhada da equipe.
 - Reserva: **2 cargas**, recuperando **1 a cada 8 segundos**, até o máximo de duas. Dois defensores usam a mesma reserva; cada ação afeta um atacante.
 - Proteção contra autoclique: comandos enviados usam uma autorização de uso único. Reenvios e rajadas inválidas não executam novas ações; quatro violações em cinco segundos suspendem os comandos daquele jogador por oito segundos.
+
+O Enter durante o intervalo não envia comandos nem guarda uma execução para depois. Segurar a tecla não executa quando o contador termina: é necessário soltá-la e pressionar novamente, ou clicar em Executar. A mesma regra vale para ataque e defesa, preservando os tempos e a reserva da equipe.
 
 Esses parâmetros são um ponto de partida para o ensaio: observe vazamentos, comandos rejeitados e respostas dos grupos antes de usá-los para avaliação. As restrições de colagem e digitação orientam a interface; não comprovam digitação humana contra scripts que manipulem o navegador ou chamem a API.
 
