@@ -8,6 +8,6 @@
     "start": "node --env-file-if-exists=.env server.mjs",
     "dev": "node --env-file-if-exists=.env --watch server.mjs",
     "test": "node --test tests/*.test.mjs",
-    "check": "node --check server.mjs && node --check lib/http.mjs && node --check lib/engine.mjs && node --check lib/store.mjs && node --check js/arena.js"
+    "check": "node --check server.mjs && node --check lib/http.mjs && node --check lib/engine.mjs && node --check lib/common.mjs && node --check lib/campaign.mjs && node --check lib/dossier.mjs && node --check lib/store.mjs && node --check js/arena.js"
   }
 }

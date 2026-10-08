@@ -1,6 +1,10 @@
 # THOR · DeepWeb Arena
 
-Arena educacional para a retrospectiva da Fecart. Os comandos são **simulados dentro da aplicação**; os documentos capturados são PDFs reais. Não executa Kali nem comandos do sistema operacional do servidor.
+Arena educacional para a retrospectiva da Fecart. Os comandos são **simulados dentro da aplicação**; os documentos entregues são PDFs reais. Não executa Kali nem comandos do sistema operacional do servidor.
+
+Novas atividades usam **Campanha das Chaves**: todos atacam e defendem, capturam e resgatam chaves, enfrentam a Interpol e reúnem o conjunto para abrir um dossiê com brute force guiada. O PDF revela o código do Pentágono virtual; todos os integrantes precisam vencer seu desafio individual para conquistar a bandeira mestra. PDFs dos grupos são opcionais. Veja regras, pontuação e exemplos em [docs/CAMPANHA.md](docs/CAMPANHA.md).
+
+O professor também pode escolher **Captura de PDFs**, a dinâmica original descrita abaixo. Atividades já existentes permanecem nesse modo. A campanha não exige migração de SQL nem configuração nova na Vercel ou no Supabase.
 
 ## Testar agora
 
@@ -15,7 +19,7 @@ Abra **http://localhost:3000** como professor. Sem `.env`, a criação de ativid
 
 Para representar vários alunos no mesmo computador, use perfis ou janelas anônimas independentes. Abas no mesmo perfil compartilham a sessão salva. Recarregar a página retoma a atividade neste navegador.
 
-## Jornada
+## Jornada do modo original: Captura de PDFs
 
 1. Professor abre a atividade e compartilha o código.
 2. Os alunos entram com nome; o professor seleciona quantos integrantes desejar e nomeia cada equipe.
@@ -47,7 +51,7 @@ O professor vê o número de vazamentos rapidamente nas equipes e pode abrir o d
 
 Avisos aparecem em uma janela central para os jogadores, com confirmação de leitura. O catálogo tem dez efeitos: Glitch, Terremoto, Neblina, Espelho, Chuva de código, Monitor antigo, Modo blecaute, Pulso do cofre, Vento digital e Maré de dados. Duram de 5 a 20 segundos, um por grupo, podem ser encerrados pelo professor e não alteram pontos ou conexões. Os jogadores podem reduzir os efeitos; a preferência de movimento reduzido do navegador é respeitada.
 
-## Pontuação
+## Pontuação do modo original
 
 - **50 por captura:** uma única extração por par equipe atacante/equipe alvo. Dois integrantes tentando capturar simultaneamente não duplicam pontos ou PDF.
 - **5 por defesa válida:** exige uma nova etapa do atacante, a ferramenta correta para o estágio, intervalo por jogador e uma carga disponível. Afeta somente o incidente selecionado. Consultar logs não soma pontos nem gasta carga.
@@ -76,6 +80,8 @@ Atividades existentes são atualizadas automaticamente, preservando PDFs, captur
 
 - `index.html`, `style.css`, `js/arena.js`: interface, manual e treino.
 - `lib/engine.mjs`: regras, sessões e pontuação.
+- `lib/campaign.mjs`: chaves, resgate, busca guiada e IAs da campanha.
+- `lib/dossier.mjs`: PDF privado de acesso ao desafio cooperativo.
 - `lib/http.mjs`, `server.mjs`: API e servidor local.
 - `lib/store.mjs`: persistência local ou Supabase com controle de revisão.
 - `api/index.mjs`, `vercel.json`: entrada para Vercel.

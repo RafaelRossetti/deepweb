@@ -64,7 +64,7 @@ async function fixture(t, { maxIncoming = 2 } = {}) {
     return result;
   }
   const activity = ok(await request('/api/activities', {
-    body: { title: 'Arena Fecart de teste', password: PASSWORD, maxIncoming },
+    body: { title: 'Arena Fecart de teste', password: PASSWORD, maxIncoming, mode: 'classic' },
   }));
   assert.equal(typeof activity.code, 'string');
   assert.equal(typeof activity.token, 'string');
@@ -183,7 +183,7 @@ test('groups accept one, four or eight members and still require attacker and de
   for (const team of [solo, large, four]) f.ok(await f.document(team.id));
   f.ok(await f.action(f.activity.token, { type: 'prepare' }));
   const rejected = f.denied(await f.action(f.activity.token, { type: 'start', minutes: 10 }));
-  assert.match(rejected.data.error, /Em organização precisa de pelo menos um atacante e um defensor/);
+  assert.match(rejected.data.error, /Em organização precisa de ataque e defesa/);
   f.ok(await f.action(f.activity.token, { type: 'team-delete', teamId: solo.id }));
   f.ok(await f.action(f.activity.token, { type: 'start', minutes: 10 }));
   await f.capture(large.members[0], four);
@@ -561,7 +561,8 @@ test('all ten teacher effects are scoped, bounded, nonstacking and cleared at fi
 
 test('existing activities migrate analyst roles without losing PDFs, points or captures', () => {
   const now = Date.UTC(2026, 9, 8, 15);
-  const state = newActivity({ title: 'Atividade em andamento' }, 'teacher-token', now);
+  const state = newActivity({ title: 'Atividade em andamento', mode: 'classic' }, 'teacher-token', now);
+  delete state.mode;
   const personId = addParticipant(state, { name: 'Integrante anterior' }, 'student-token', now);
   const person = state.participants[0];
   person.role = 'analyst'; person.teamId = 'old-team';
@@ -580,7 +581,7 @@ test('existing activities migrate analyst roles without losing PDFs, points or c
 
 test('an attentive defender can resist one attacker but continuous simultaneous pressure creates a capture opportunity', () => {
   function simulate(attackerCount) {
-    const state = newActivity({ title: 'Ensaio de equilíbrio' }, 'teacher', 1);
+    const state = newActivity({ title: 'Ensaio de equilíbrio', mode: 'classic' }, 'teacher', 1);
     const makeTeam = (id, name) => ({ id, name, memberIds: [], document: { key: id + '.pdf' }, score: 0, captureCount: 0, defenseCount: 0, survivalBonus: 0, compromised: false, defenseReserve: { charges: LIMITS.defenseCapacity, updatedAt: 1 } });
     state.teams = [makeTeam('attackers', 'Ataque'), makeTeam('defenders', 'Defesa')];
     const attackers = [];
