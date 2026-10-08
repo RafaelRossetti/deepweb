@@ -1,266 +1,58 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="pt-BR">
-
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Thor Cyber-Intrusion Simulator</title>
-    <link rel="stylesheet" href="style.css">
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
-    <!-- PeerJS for WebRTC P2P connection -->
-    <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#08110e">
+  <title>THOR · Arena de sistemas operacionais</title><link rel="stylesheet" href="/style.css"><script src="/js/arena.js" defer></script>
 </head>
-
 <body>
-    <!-- CRT Overlay -->
-    <div class="crt-overlay"></div>
-    <div class="scanlines"></div>
-
-    <!-- ==================== LOBBY SCREEN ==================== -->
-    <div id="lobby-screen" class="screen active">
-        <div class="lobby-container">
-            <div class="lobby-header">
-                <h1 class="glitch-text" data-text="THOR">THOR</h1>
-                <p class="lobby-subtitle">CYBER-INTRUSION SIMULATOR v4.2.0</p>
-                <div class="lobby-divider"></div>
-                <p class="lobby-tagline">SELECT OPERATION MODE</p>
+  <a class="skip-link" href="#main">Ir para o conteúdo</a><div class="ambient" aria-hidden="true"></div><div id="toast" class="toast" role="status" hidden></div>
+  <main id="main">
+    <section id="entry-view" class="entry-view">
+      <header class="entry-top"><a class="brand" href="/" aria-label="THOR início"><span class="brand-mark">ϟ</span><span>THOR<span class="brand-sub">CYBER ARENA</span></span></a><span class="chip"><span class="live-dot"></span> LABORATÓRIO EDUCACIONAL</span></header>
+      <div class="entry-hero"><p class="eyebrow">SISTEMAS OPERACIONAIS / ATAQUE & DEFESA</p><h1>Seu time.<br>Seu cofre.<br><span>Sua estratégia.</span></h1><p class="hero-description">Explore ferramentas, proteja o PDF da sua equipe e capture documentos dos adversários. Uma arena guiada para aprender fazendo.</p><div class="hero-points"><span><strong>50</strong> pontos por captura</span><span><strong>5</strong> por defesa válida</span><span><strong>50</strong> por cofre protegido</span></div></div>
+      <div class="entry-forms">
+        <section id="entry-choice" class="panel entry-choice" aria-label="Escolha como entrar"><p class="eyebrow">BEM-VINDO À ATIVIDADE</p><h2>Como você vai participar?</h2><button id="choose-teacher" type="button" class="entry-choice-button"><strong>Sou professor <span aria-hidden="true">→</span></strong><span>Abrir a atividade, montar os times e conduzir a turma.</span></button><button id="choose-student" type="button" class="entry-choice-button"><strong>Sou aluno <span aria-hidden="true">→</span></strong><span>Entrar na atividade que o professor abriu.</span></button></section>
+        <form id="join-form" class="panel join-panel" method="post" hidden><button type="button" class="text-button entry-back" data-entry-back>← Escolher outra forma de entrar</button><div class="panel-heading"><div><p class="eyebrow">ALUNO</p><h2>Entre na atividade</h2></div></div><p>Peça o código ao professor e informe seu nome. Ele colocará você em um time.</p><label for="join-code">Código recebido do professor</label><input id="join-code" name="code" class="code-input" placeholder="EX.: ABC234" maxlength="6" autocomplete="off" required><label for="join-name">Seu nome</label><input id="join-name" name="name" placeholder="Como o professor conhece você" maxlength="60" autocomplete="name" required><button type="submit" class="button primary wide" disabled>Entrar na atividade <span aria-hidden="true">↗</span></button><div id="saved-session" class="saved-session" hidden></div></form>
+        <form id="create-form" class="panel create-panel" method="post" hidden><button type="button" class="text-button entry-back" data-entry-back>← Escolher outra forma de entrar</button><div class="panel-heading"><div><p class="eyebrow">PROFESSOR</p><h2>Abra sua atividade</h2></div></div><p>Ao criar, você recebe um código para compartilhar com os alunos. Depois, monta os times e prepara os PDFs.</p><label for="activity-title">Nome da atividade</label><input id="activity-title" name="title" value="Retrospectiva Fecart · SO" maxlength="80" required><div id="teacher-password-field" hidden><label for="teacher-password">Senha do professor</label><input id="teacher-password" name="password" type="password" autocomplete="current-password" placeholder="Sua senha para abrir atividades"></div><button type="submit" class="button primary wide" disabled>Criar atividade e receber código <span aria-hidden="true">→</span></button><div id="teacher-saved-session" class="saved-session" hidden></div></form>
+        <noscript>Ative o JavaScript no navegador para abrir ou entrar na atividade.</noscript>
+      </div><footer class="entry-footer"><span>Comandos simulados · PDFs reais · Aprendizagem em equipe</span><span>THOR / v1.0</span></footer>
+    </section>
+    <section id="arena-view" class="arena-view" hidden>
+      <header class="arena-header"><div class="brand"><span class="brand-mark">ϟ</span><span>THOR<span class="brand-sub">CYBER ARENA</span></span></div><div class="activity-heading"><h1 id="activity-name">Atividade</h1><span id="activity-code-label" class="muted"></span></div><div class="header-actions"><span id="connection-state" class="connection"><span class="live-dot"></span> Conectado</span><span id="viewer-badge" class="chip"></span><button id="home-button" class="button ghost small" type="button">Início</button></div></header>
+      <div id="connection-warning" class="warning-banner" role="alert" hidden>Conexão interrompida. Exibindo os últimos dados recebidos; tentando reconectar.</div>
+      <div class="arena-body">
+        <section class="operation-strip"><div><p class="eyebrow">ESTADO DA OPERAÇÃO</p><h2 id="phase-title">Entrada dos participantes</h2><p id="phase-description">Aguardando o professor.</p></div><div class="operation-clock"><span id="clock-label">AGUARDANDO INÍCIO</span><strong id="clock">--:--</strong><span id="clock-footnote">O professor controla o tempo</span></div></section>
+        <section id="alert-section" class="alert-section" aria-live="polite" hidden><span class="alert-icon" aria-hidden="true">!</span><div><span class="eyebrow">TRANSMISSÃO DO PROFESSOR</span><p id="latest-alert"></p></div><time id="alert-time"></time></section>
+        <nav id="arena-tabs" class="tabs" aria-label="Áreas da atividade"><button data-tab="operation" class="tab active" type="button">Operação</button><button data-tab="toolkit" class="tab" type="button">Ferramentas <span class="tab-tag">GUIA</span></button><button data-tab="ranking" class="tab" type="button">Ranking</button></nav>
+        <div id="operation-panel" class="tab-panel">
+          <div id="teacher-area" class="teacher-layout" hidden><div class="teacher-main">
+            <section class="panel roster-panel"><div class="section-heading"><div><p class="eyebrow">01 / ORGANIZE A TURMA</p><h2>Participantes <span id="participant-count" class="count">0</span></h2></div><div class="code-share"><span>CÓDIGO</span><button id="copy-code" type="button" title="Copiar código da atividade"></button></div></div><p class="muted">Selecione 2 ou 3 integrantes, dê um nome ao time e confirme. Cada equipe escolhe ao menos um atacante e um defensor.</p><div id="participant-list" class="participant-list"></div><form id="team-form" class="team-form"><div><label for="team-name">Nome do time</label><input id="team-name" maxlength="40" placeholder="EX.: Guardiões do Kernel" required></div><button class="button secondary" type="submit">Criar time <span id="selected-count">(0)</span></button></form></section>
+            <section class="panel"><div class="section-heading"><div><p class="eyebrow">02 / PREPARE OS COFRES</p><h2>Times e documentos <span id="team-count" class="count">0</span></h2></div><span class="chip subtle">PDF · ATÉ 3 MB</span></div><p class="muted">A preparação libera o catálogo e o treino. Envie um PDF para cada time enquanto eles estudam as ferramentas.</p><div id="team-list" class="team-list"></div></section>
+            <section class="panel"><div class="section-heading"><div><p class="eyebrow">REGISTRO DA ARENA</p><h2>Últimos acontecimentos</h2></div><span class="chip subtle">AO VIVO</span></div><div id="teacher-events" class="event-list"></div></section>
+          </div><aside class="teacher-sidebar">
+            <section class="panel control-panel"><p class="eyebrow">CENTRAL DO PROFESSOR</p><h2>Controle da atividade</h2><ol class="journey-steps"><li data-phase="lobby">Organizar os times</li><li data-phase="preparing">Preparar e estudar</li><li data-phase="running">Atacar e defender</li><li data-phase="finished">Revelar o ranking</li></ol><button id="prepare-button" class="button secondary wide" type="button">Liberar preparação</button><form id="start-form"><label for="duration">Duração da rodada, em minutos</label><div class="input-action"><input id="duration" type="number" min="1" max="180" value="20" required><button class="button primary" type="submit">Iniciar <span aria-hidden="true">▶</span></button></div></form><div id="start-readiness" class="readiness"></div><form id="extend-form" hidden><label for="extend-minutes">Adicionar tempo, em minutos</label><div class="input-action"><input id="extend-minutes" type="number" min="1" max="60" value="5" required><button class="button secondary" type="submit">Adicionar</button></div></form><button id="finish-button" class="button danger wide" type="button" hidden>Encerrar atividade</button><p id="finish-note" class="muted small-text" hidden>Encerrada. O bônus de proteção e o ranking estão disponíveis.</p></section>
+            <section class="panel"><p class="eyebrow">COMUNICAÇÃO</p><h2>Alerta para todos</h2><form id="announce-form"><label for="announcement">Mensagem</label><textarea id="announcement" rows="3" maxlength="280" placeholder="Dica: acompanhem as conexões no painel de defesa." required></textarea><button class="button secondary wide" type="submit">Transmitir alerta <span aria-hidden="true">↗</span></button></form></section>
+            <section class="panel public-panel"><p class="eyebrow">PARA O PROJETOR</p><h2>Tela pública</h2><p class="muted">Compartilhe o ranking e os avisos sem exibir os nomes dos alunos.</p><a id="public-link" class="button ghost wide" target="_blank" rel="noopener">Abrir tela pública ↗</a><button id="copy-public" class="text-button" type="button">Copiar link público</button></section>
+          </aside></div>
+          <div id="student-area" hidden>
+            <section id="student-waiting" class="panel waiting-panel"><span class="waiting-orbit" aria-hidden="true">⌁</span><p class="eyebrow">CONEXÃO ESTABELECIDA</p><h2>Você já está na atividade.</h2><p>O professor está formando os times. Aguarde sua equipe aparecer aqui.</p><p id="student-identity" class="muted"></p></section>
+            <div id="student-team-area" hidden>
+              <section class="panel team-overview"><div><p class="eyebrow">SUA EQUIPE</p><h2 id="my-team-name">Seu time</h2><div id="my-team-members" class="team-members"></div></div><div class="team-metrics"><div><strong id="my-score">0</strong><span>PONTOS</span></div><div><strong id="my-captures">0</strong><span>CAPTURAS</span></div><div><strong id="my-defenses">0</strong><span>DEFESAS</span></div><div class="vault-metric"><strong id="my-vault">◈</strong><span id="my-vault-label">COFRE</span></div></div></section>
+              <section id="role-panel" class="panel role-panel"><div><p class="eyebrow">DIVIDAM AS RESPONSABILIDADES</p><h2>Qual será sua função?</h2><p class="muted">O time precisa de pelo menos um atacante e um defensor. O terceiro integrante pode analisar ou reforçar uma das funções.</p></div><div class="role-options"><button data-role="attack" class="role-card" type="button"><span class="role-symbol">↗</span><strong>Atacante</strong><span>Investiga e captura PDFs.</span></button><button data-role="defense" class="role-card" type="button"><span class="role-symbol">◇</span><strong>Defensor</strong><span>Responde a cada conexão.</span></button><button data-role="analyst" class="role-card" type="button"><span class="role-symbol">≡</span><strong>Analista</strong><span>Lê registros e orienta o time.</span></button></div><p id="role-readiness" class="readiness"></p></section>
+              <section id="preparation-banner" class="prep-banner"><span class="prep-symbol">⌘</span><div><p class="eyebrow">PREPARAÇÃO LIBERADA</p><h2>Conheça suas ferramentas antes da rodada.</h2><p>Explore os comandos e use o treino local. O treino não altera a pontuação nem ataca outras equipes.</p></div><button class="button primary" data-open-toolkit type="button">Abrir ferramentas ↗</button></section>
+              <div id="live-student-arena" class="student-live-layout" hidden>
+                <section id="attack-panel" class="panel attack-panel"><div class="section-heading"><div><p class="eyebrow">ESTAÇÃO DE ATAQUE</p><h2>Encontre o documento</h2></div><span class="chip attack-chip">ATAQUE</span></div><label for="attack-target">Equipe adversária</label><select id="attack-target"><option value="">Selecione um alvo</option></select><div id="attack-path" class="attack-path"></div><div id="attack-tools" class="compact-tools"></div><div class="command-guide"><span id="attack-guide-title" class="eyebrow">ESCOLHA UMA FERRAMENTA</span><p id="attack-guide">Selecione um time para começar a investigação.</p></div><form id="attack-command-form" class="terminal-form"><label for="attack-command">Comando simulado</label><div class="terminal-input"><span aria-hidden="true">$</span><input id="attack-command" spellcheck="false" autocomplete="off" placeholder="scan" required><button class="button primary small" type="submit">Executar ↵</button></div></form><div id="attack-output" class="terminal-output" role="log" aria-live="polite"></div><p class="muted small-text">Uma captura por equipe adversária. Extrações repetidas não geram pontos nem outro download.</p></section>
+                <section id="defense-panel" class="panel defense-panel"><div class="section-heading"><div><p class="eyebrow">ESTAÇÃO DE DEFESA</p><h2>Proteja cada conexão</h2></div><span class="chip defense-chip">DEFESA</span></div><label for="defense-incident">Conexão de ataque</label><select id="defense-incident"><option value="">Nenhuma conexão ativa</option></select><div id="defense-connections" class="connection-list"></div><div id="defense-tools" class="compact-tools"></div><div class="command-guide"><span id="defense-guide-title" class="eyebrow">RESPOSTA DIRECIONADA</span><p id="defense-guide">Escolha uma conexão. Sua defesa afetará somente aquele atacante.</p></div><form id="defense-command-form" class="terminal-form"><label for="defense-command">Comando simulado</label><div class="terminal-input"><span aria-hidden="true">$</span><input id="defense-command" spellcheck="false" autocomplete="off" placeholder="logs" required><button class="button secondary small" type="submit">Executar ↵</button></div></form><div id="defense-output" class="terminal-output" role="log" aria-live="polite"></div><p class="muted small-text">Defesas válidas: +5 pontos. Bloqueios e desvios afetam uma conexão por execução.</p></section>
+                <section id="analyst-panel" class="panel analyst-panel" hidden><p class="eyebrow">ESTAÇÃO DE ANÁLISE</p><h2>Transforme registros em estratégia</h2><p>Acompanhe os incidentes e avise seus colegas sobre o avanço de cada atacante. Consulte as ferramentas para escolher a resposta adequada.</p><button id="analyst-logs" class="button secondary" type="button">Consultar logs</button><div id="analyst-connections" class="connection-list"></div><div id="analyst-output" class="terminal-output" role="log" aria-live="polite"></div></section>
+              </div><section class="panel student-events-panel"><div class="section-heading"><div><p class="eyebrow">REGISTRO DO TIME</p><h2>O que está acontecendo</h2></div><span class="chip subtle">AO VIVO</span></div><div id="student-events" class="event-list"></div></section>
             </div>
-
-            <div class="lobby-options">
-                <!-- CREATE ROOM (Attacker) -->
-                <div class="lobby-card" id="card-attacker">
-                    <div class="card-icon">⚔️</div>
-                    <h2>ATACANTE</h2>
-                    <p>Você invade o sistema alvo.<br>Encontre vulnerabilidades e extraia os dados antes de ser
-                        rastreado.</p>
-                    <button id="btn-create-room" class="lobby-btn btn-attack">CRIAR SALA</button>
-                    <div id="room-code-display" class="room-code hidden">
-                        <span class="code-label">CÓDIGO DA SALA:</span>
-                        <span id="room-code-value" class="code-value">------</span>
-                        <button id="btn-copy-code" class="btn-copy" title="Copiar código">📋</button>
-                        <p class="waiting-text">Aguardando defensor conectar...</p>
-                    </div>
-                </div>
-
-                <!-- JOIN ROOM (Defender) -->
-                <div class="lobby-card" id="card-defender">
-                    <div class="card-icon">🛡️</div>
-                    <h2>DEFENSOR</h2>
-                    <p>Você protege o sistema alvo.<br>Monitore os logs, bloqueie IPs e rastreie o invasor antes que ele
-                        fuja.</p>
-                    <div class="join-form">
-                        <input type="text" id="input-room-code" class="room-input" placeholder="CÓDIGO DA SALA"
-                            maxlength="8" spellcheck="false">
-                        <button id="btn-join-room" class="lobby-btn btn-defend">ENTRAR NA SALA</button>
-                    </div>
-                    <p id="join-status" class="join-status"></p>
-                </div>
-            </div>
-
-            <div class="lobby-footer">
-                <p>Conexão Peer-to-Peer • Sem servidor • Dados diretos</p>
-            </div>
+          </div>
         </div>
-    </div>
-
-    <!-- ==================== GAME SCREEN (ATTACKER VIEW) ==================== -->
-    <div id="game-attacker" class="screen">
-        <div class="game-layout">
-            <!-- Header -->
-            <header class="game-header">
-                <div class="header-left">
-                    <span class="logo">THOR <span class="version">v4.2.0</span></span>
-                    <div class="header-divider"></div>
-                    <div class="header-info">
-                        <span class="label">ROLE</span>
-                        <span class="value text-red">ATACANTE</span>
-                    </div>
-                </div>
-                <div class="header-right">
-                    <div class="header-info">
-                        <span class="label">TARGET IP</span>
-                        <span id="atk-target-ip" class="value">10.0.4.15</span>
-                    </div>
-                    <div class="header-info">
-                        <span class="label">EXFILTRAÇÃO</span>
-                        <div class="progress-bar">
-                            <div id="atk-exfil-bar" class="progress-fill exfil-fill"></div>
-                        </div>
-                        <span id="atk-exfil-pct" class="value">0%</span>
-                    </div>
-                    <div class="header-info">
-                        <span class="label">TRACE INIMIGO</span>
-                        <div class="progress-bar">
-                            <div id="atk-trace-bar" class="progress-fill trace-fill"></div>
-                        </div>
-                        <span id="atk-trace-pct" class="value">0%</span>
-                    </div>
-                    <div class="header-info">
-                        <span class="label">CLOCK</span>
-                        <span id="atk-clock" class="value">00:00:00</span>
-                    </div>
-                </div>
-            </header>
-
-            <!-- Main Body -->
-            <div class="game-body">
-                <!-- Left: Network Map + Tools -->
-                <aside class="side-panel">
-                    <div class="panel network-panel">
-                        <h3 class="panel-title">NETWORK MAP</h3>
-                        <div id="atk-network-map" class="network-map">
-                            <div class="grid-bg"></div>
-                        </div>
-                    </div>
-                    <div class="panel tools-panel">
-                        <h3 class="panel-title">TOOLKIT</h3>
-                        <div class="tools-grid">
-                            <button id="atk-btn-scan" class="tool-btn">SCAN</button>
-                            <button id="atk-btn-exploit" class="tool-btn locked">EXPLOIT</button>
-                            <button id="atk-btn-bruteforce" class="tool-btn locked">BRUTEFORCE</button>
-                            <button id="atk-btn-exfiltrate" class="tool-btn locked">EXFILTRATE</button>
-                        </div>
-                    </div>
-                </aside>
-
-                <!-- Right: Terminal -->
-                <section class="terminal-panel">
-                    <div class="terminal-header">
-                        <span>THOR_ATTACK_TERMINAL > BASH</span>
-                        <div class="terminal-dots">
-                            <span class="dot red"></span>
-                            <span class="dot yellow"></span>
-                            <span class="dot green"></span>
-                        </div>
-                    </div>
-                    <div id="atk-terminal" class="terminal-body">
-                        <div class="log info">THOR v4.2.0 Initialized. Role: ATTACKER.</div>
-                        <div class="log success">VPN Tunnel established. You are anonymous.</div>
-                        <div class="log default">Type 'help' for available commands.</div>
-                        <div class="input-line">
-                            <span class="prompt">thor@attack:~$</span>
-                            <input type="text" id="atk-input" class="terminal-input" autofocus spellcheck="false">
-                        </div>
-                    </div>
-                </section>
-            </div>
-
-            <!-- Footer -->
-            <footer class="game-footer">
-                <div class="footer-info">
-                    <span class="label">OBJETIVO</span>
-                    <span id="atk-objective" class="value">Varra a rede e encontre o alvo.</span>
-                </div>
-                <div id="atk-game-timer" class="game-timer">⏱ 05:00</div>
-            </footer>
-        </div>
-    </div>
-
-    <!-- ==================== GAME SCREEN (DEFENDER VIEW) ==================== -->
-    <div id="game-defender" class="screen">
-        <div class="game-layout defender-theme">
-            <!-- Header -->
-            <header class="game-header">
-                <div class="header-left">
-                    <span class="logo">THOR <span class="version">SOC</span></span>
-                    <div class="header-divider"></div>
-                    <div class="header-info">
-                        <span class="label">ROLE</span>
-                        <span class="value text-blue">DEFENSOR</span>
-                    </div>
-                </div>
-                <div class="header-right">
-                    <div class="header-info">
-                        <span class="label">SISTEMA PROTEGIDO</span>
-                        <span id="def-target-ip" class="value">10.0.4.15</span>
-                    </div>
-                    <div class="header-info">
-                        <span class="label">DADOS ROUBADOS</span>
-                        <div class="progress-bar">
-                            <div id="def-exfil-bar" class="progress-fill exfil-fill"></div>
-                        </div>
-                        <span id="def-exfil-pct" class="value">0%</span>
-                    </div>
-                    <div class="header-info">
-                        <span class="label">SEU TRACE</span>
-                        <div class="progress-bar">
-                            <div id="def-trace-bar" class="progress-fill trace-fill-blue"></div>
-                        </div>
-                        <span id="def-trace-pct" class="value">0%</span>
-                    </div>
-                    <div class="header-info">
-                        <span class="label">CLOCK</span>
-                        <span id="def-clock" class="value">00:00:00</span>
-                    </div>
-                </div>
-            </header>
-
-            <!-- Main Body -->
-            <div class="game-body">
-                <!-- Left: IDS Alerts + Defense Tools -->
-                <aside class="side-panel">
-                    <div class="panel ids-panel">
-                        <h3 class="panel-title alert-title">⚠ IDS ALERTS</h3>
-                        <div id="def-ids-log" class="ids-log">
-                            <div class="ids-entry">System online. Monitoring active.</div>
-                        </div>
-                    </div>
-                    <div class="panel tools-panel">
-                        <h3 class="panel-title">DEFENSE TOOLKIT</h3>
-                        <div class="tools-grid">
-                            <button id="def-btn-trace" class="tool-btn def-btn">TRACE</button>
-                            <button id="def-btn-block" class="tool-btn def-btn">BLOCK IP</button>
-                            <button id="def-btn-patch" class="tool-btn def-btn">PATCH</button>
-                            <button id="def-btn-rotate" class="tool-btn def-btn">ROTATE KEYS</button>
-                        </div>
-                    </div>
-                </aside>
-
-                <!-- Right: Defender Terminal -->
-                <section class="terminal-panel">
-                    <div class="terminal-header def-terminal-header">
-                        <span>THOR_SOC_TERMINAL > FIREWALL</span>
-                        <div class="terminal-dots">
-                            <span class="dot red"></span>
-                            <span class="dot yellow"></span>
-                            <span class="dot green"></span>
-                        </div>
-                    </div>
-                    <div id="def-terminal" class="terminal-body">
-                        <div class="log info">THOR SOC Initialized. Role: DEFENDER.</div>
-                        <div class="log success">Firewall active. All ports monitored.</div>
-                        <div class="log default">Type 'help' for defense commands.</div>
-                        <div class="input-line">
-                            <span class="prompt def-prompt">thor@defense:~$</span>
-                            <input type="text" id="def-input" class="terminal-input" spellcheck="false">
-                        </div>
-                    </div>
-                </section>
-            </div>
-
-            <!-- Footer -->
-            <footer class="game-footer">
-                <div class="footer-info">
-                    <span class="label">MISSÃO</span>
-                    <span id="def-objective" class="value">Monitore a rede e rastrie o invasor.</span>
-                </div>
-                <div id="def-game-timer" class="game-timer">⏱ 05:00</div>
-            </footer>
-        </div>
-    </div>
-
-    <!-- ==================== GAME OVER OVERLAY ==================== -->
-    <div id="game-over" class="screen overlay">
-        <div class="game-over-box">
-            <h1 id="go-title" class="go-title">RESULTADO</h1>
-            <p id="go-message" class="go-message">...</p>
-            <button id="btn-play-again" class="lobby-btn btn-attack">JOGAR NOVAMENTE</button>
-        </div>
-    </div>
-
-    <!-- Scripts (no modules to avoid CORS on file://) -->
-    <script src="js/network.js"></script>
-    <script src="js/app.js"></script>
+        <div id="toolkit-panel" class="tab-panel" hidden><section class="toolkit-intro"><div><p class="eyebrow">MANUAL DE CAMPO / COMANDOS SIMULADOS</p><h2>Escolha uma ferramenta.<br><span>Entenda o próximo passo.</span></h2><p>Os comandos desta arena representam operações de investigação e controle de acesso. Eles funcionam aqui, dentro da atividade.</p></div><div class="toolkit-note"><span>◈</span><p><strong>A defesa é por conexão.</strong> Uma ação responde a um atacante. Se houver dois atacantes, escolha e trate cada incidente separadamente.</p></div></section><div id="toolkit-cards" class="toolkit-grid"></div><section class="panel training-panel"><div><p class="eyebrow">TREINO LOCAL / SEM PONTUAÇÃO</p><h2>Experimente o ciclo de ataque e defesa</h2><p class="muted">Use os cartões acima para preencher o comando. Execute e acompanhe o resultado neste ambiente de ensaio.</p></div><div id="training-state" class="training-state"></div><form id="training-form"><label for="training-command">Comando para ensaiar</label><div class="terminal-input"><span aria-hidden="true">$</span><input id="training-command" spellcheck="false" autocomplete="off" placeholder="scan" required><button class="button secondary" type="submit">Ensaiar ↵</button></div></form><div id="training-output" class="terminal-output" role="log" aria-live="polite"></div><button id="reset-training" class="text-button" type="button">Reiniciar treino</button></section></div>
+        <div id="ranking-panel" class="tab-panel" hidden><section class="ranking-header"><div><p class="eyebrow">PLACAR DA OPERAÇÃO</p><h2 id="ranking-title">Ranking ao vivo</h2><p id="ranking-description">Cada captura e defesa válida conta.</p></div><div class="scoring-legend"><span><strong>50</strong> captura</span><span><strong>5</strong> defesa</span><span><strong>50</strong> proteção final</span></div></section><div id="ranking-list" class="ranking-list"></div><section class="panel announcements-panel"><p class="eyebrow">TRANSMISSÕES</p><h2>Avisos da atividade</h2><div id="announcement-list" class="event-list"></div></section></div>
+        <footer class="arena-footer"><span>THOR · Laboratório de sistemas operacionais</span><span>Simulação guiada · 20 equipes / 60 participantes</span></footer>
+      </div>
+    </section>
+  </main>
 </body>
-
 </html>

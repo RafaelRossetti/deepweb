@@ -1,0 +1,9 @@
+{
+  "version": 2,
+  "builds": [{
+    "src": "api/index.mjs",
+    "use": "@vercel/node",
+    "config": { "includeFiles": ["index.html", "style.css", "js/arena.js"] }
+  }],
+  "routes": [{ "src": "/(.*)", "dest": "/api/index.mjs" }]
+}
