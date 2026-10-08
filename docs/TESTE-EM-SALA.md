@@ -22,18 +22,26 @@ O resultado esperado é todos os testes passarem. A suíte verifica autorizaçã
 
 1. Inicie a aplicação conforme o README e abra o painel do professor. Crie uma atividade de teste e anote o código de entrada.
 2. Use janelas ou perfis de navegador independentes para seis alunos fictícios. Cada perfil mantém sua própria sessão. Entre no mesmo código com nomes distintos.
-3. No professor, forme dois trios. Não use o mesmo participante em dois grupos. Em cada trio, um aluno escolhe ataque, outro defesa e outro análise.
+3. No professor, forme dois trios. Não use o mesmo participante em dois grupos. Em cada trio, mantenha ao menos um atacante e um defensor; o terceiro reforça uma das funções.
 4. Envie um PDF de teste para apenas um dos grupos e tente iniciar. O início deve ser recusado. Envie o segundo PDF, confirme a preparação de todos e inicie uma rodada curta.
 5. Como atacante, selecione o outro grupo e siga descoberta, inspeção, acesso e extração, respeitando os intervalos de ação. A tentativa deve aparecer para o grupo que está defendendo.
-6. Como defensor, selecione o incidente recebido e aplique uma defesa. O resultado deve afetar aquele incidente. Repetir a defesa sem uma nova ação ofensiva válida não pode aumentar a pontuação.
+6. Como defensor, selecione o incidente e aplique a defesa adequada: `reroute` na etapa Alvo reconhecido, `block` na etapa Pista encontrada e `revoke` na etapa Acesso obtido. Uma ferramenta fora de sua etapa deve falhar sem consumir carga. O resultado deve afetar apenas aquele incidente. Confira a reserva compartilhada de duas cargas, a recuperação de uma a cada oito segundos e o intervalo de cinco segundos por defensor, mesmo mudando de conexão.
 7. Retome o ataque conforme o estado do incidente. Conclua a captura e baixe o PDF. Confira o arquivo e os 50 pontos de captura. Reutilizar o mesmo link de download deve falhar.
-8. Envie um aviso do professor e confira o recebimento nos dois grupos. Prorrogue a rodada e verifique a mudança do prazo em outras janelas.
+8. Envie um aviso e confira a janela central nos dois grupos. Confirme a leitura; atualizar a página não deve reabrir o mesmo aviso. Prorrogue a rodada e verifique a mudança do prazo. Envie um efeito a um grupo e confira que somente os seus integrantes recebem a interferência, com término automático e opção de reduzir o efeito.
 9. Encerre manualmente. Cada grupo que preservou seu documento recebe 50 pontos uma única vez. Atualizar a página ou encerrar novamente não pode somar outro bônus.
 10. Faça outra rodada curta e deixe o prazo terminar. Uma consulta ou ação após o prazo deve produzir o resultado final antes de aceitar qualquer nova pontuação.
 
+Confira também:
+
+- Clique em `scan` uma vez e execute. O botão deve continuar indisponível após atualizar a página; uma nova execução exige digitação. Tente um comando com erro e confira que não avança. Tente colar e arrastar texto no campo da rodada.
+- Use dois atacantes contra o mesmo grupo. Uma defesa deve afetar somente um deles. Use **Trocar alvo** e confira que a conexão do outro atacante permanece intacta.
+- Configure dois defensores na mesma equipe e execute respostas simultâneas. Eles devem compartilhar a reserva, sem gerar cargas ou pontos duplicados.
+- Capture o mesmo PDF com duas equipes diferentes. O professor deve ver dois vazamentos e os nomes dessas equipes no detalhamento. Repetir a captura pela mesma equipe deve falhar.
+- Consulte os comandos por integrante e as origens da pontuação no painel de métricas. A tela pública deve mostrar equipes e ranking, sem os nomes dos alunos.
+
 ## Ensaio com a turma
 
-Para 60 alunos, forme 20 trios. Após a entrada e a definição dos papéis, confira se todos os grupos têm documento pronto antes de iniciar. Faça primeiro uma rodada de ensaio: os 20 atacantes iniciam a descoberta ao mesmo tempo, os defensores consultam os incidentes e os analistas acompanham os registros.
+Para 60 alunos, forme 20 trios. Após a entrada e a definição dos papéis, confira se todos os grupos têm documento pronto antes de iniciar. Faça primeiro uma rodada de ensaio: os atacantes iniciam a descoberta ao mesmo tempo e os defensores acompanham as conexões e sua reserva. Distribua o terceiro integrante entre ataque e defesa e compare os resultados das duas estratégias.
 
 Confira na projeção do professor se cada aluno entrou apenas no grupo previsto e se nenhuma ação desapareceu. Distribua os alvos para respeitar o limite de invasões simultâneas por grupo. Encerrar a rodada de ensaio permite verificar o placar antes da atividade avaliada.
 

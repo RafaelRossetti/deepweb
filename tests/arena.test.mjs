@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { createApp } from '../lib/http.mjs';
 import { createStore } from '../lib/store.mjs';
+import { LIMITS, EFFECTS, newActivity, addParticipant, action as engineAction, normalizeState, snapshot as engineSnapshot, viewerFor } from '../lib/engine.mjs';
 
 const PASSWORD = 'senha-do-professor-em-teste';
 const PDF = Buffer.from('%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF\n');
@@ -69,6 +70,10 @@ async function fixture(t, { maxIncoming = 2 } = {}) {
   assert.equal(typeof activity.token, 'string');
   const prefix = `/api/activities/${activity.code}`;
   async function action(token, body) {
+    if (['attack', 'defense', 'logs'].includes(body.type)) {
+      const current = await snapshot(token);
+      body = { entryMode: 'typed', nonce: current.viewer.commandGuard?.nonce, ...body };
+    }
     return request(prefix + '/action', { token, body });
   }
   async function snapshot(token = activity.token) {
@@ -86,7 +91,7 @@ async function fixture(t, { maxIncoming = 2 } = {}) {
       token, body: { name, base64: pdf.toString('base64') },
     });
   }
-  async function createTeam(name, members, roles = ['attack', 'defense', 'analyst']) {
+  async function createTeam(name, members, roles = ['attack', 'defense', 'defense']) {
     const before = new Set((await snapshot()).teams.map(team => team.id));
     ok(await action(activity.token, { type: 'team-create', name, memberIds: members.map(member => member.participantId) }));
     const team = (await snapshot()).teams.find(team => !before.has(team.id));
@@ -118,7 +123,7 @@ async function fixture(t, { maxIncoming = 2 } = {}) {
     let result;
     for (const command of ['scan', 'inspect', 'access', 'extract']) {
       result = ok(await attack(person, target, command));
-      now += 3001;
+      now += 4001;
     }
     assert.ok(result.download?.ticket, 'A validated capture must return a download ticket');
     return result;
@@ -201,11 +206,11 @@ test('roles, incoming limits and public snapshots isolate participants and priva
 
 test('two members racing for the same target award only one capture and one set of points', async t => {
   const f = await fixture(t);
-  const [attackers, target] = await f.teams(2, [['attack', 'attack', 'defense'], ['attack', 'defense', 'analyst']]);
+  const [attackers, target] = await f.teams(2, [['attack', 'attack', 'defense'], ['attack', 'defense', 'defense']]);
   await f.start();
   for (const command of ['scan', 'inspect', 'access']) {
     await Promise.all(attackers.members.slice(0, 2).map(async member => f.ok(await f.attack(member, target, command))));
-    f.advance(3001);
+    f.advance(4001);
   }
   const results = await Promise.all(attackers.members.slice(0, 2).map(member => f.attack(member, target, 'extract')));
   assert.equal(results.filter(result => result.status >= 200 && result.status < 300).length, 1);
@@ -215,14 +220,14 @@ test('two members racing for the same target award only one capture and one set 
   assert.equal(team.captureCount, 1);
   assert.equal(team.score, 50);
   assert.equal(snapshot.teams.find(team => team.id === target.id).compromised, true);
-  f.advance(3001);
+  f.advance(4001);
   f.denied(await f.attack(attackers.members[0], target, 'extract'));
   const after = (await f.snapshot()).teams.find(team => team.id === attackers.id);
   assert.equal(after.captureCount, 1);
   assert.equal(after.score, 50);
 });
 
-test('a defense applies only to its incident and scores only after a new eligible attack', async t => {
+test('defenses match stages, preserve other incidents and enforce the player interval across connections', async t => {
   const f = await fixture(t);
   const [alpha, defender, gamma] = await f.teams();
   await f.start();
@@ -230,31 +235,40 @@ test('a defense applies only to its incident and scores only after a new eligibl
   let state = await f.snapshot();
   const incident = state.incidents.find(item => item.attackerTeamId === alpha.id);
   const unrelated = state.incidents.find(item => item.attackerTeamId === gamma.id);
-  assert.ok(incident && unrelated);
-  f.denied(await f.action(defender.members[1].token, { type: 'defense', incidentId: incident.id, command: 'revoke' }));
-  f.ok(await f.action(defender.members[1].token, { type: 'defense', incidentId: incident.id, command: 'reroute' }));
+  const respond = (id, command) => f.action(defender.members[1].token, { type: 'defense', incidentId: id, command });
+  f.denied(await respond(incident.id, 'block'));
+  f.denied(await respond(incident.id, 'revoke'));
+  f.ok(await respond(incident.id, 'reroute'));
   state = await f.snapshot();
   assert.equal(state.incidents.find(item => item.id === incident.id).stage, 0);
-  const other = state.incidents.find(item => item.id === unrelated.id);
-  assert.equal(other.status, unrelated.status);
-  assert.equal(other.stage, unrelated.stage);
-  assert.equal(other.defenseCount, unrelated.defenseCount);
+  assert.deepEqual(state.incidents.find(item => item.id === unrelated.id), unrelated);
   assert.equal(state.teams.find(team => team.id === defender.id).score, 5);
-  f.denied(await f.action(defender.members[1].token, { type: 'defense', incidentId: incident.id, command: 'block' }));
-  f.advance(3001);
+  assert.equal((await respond(unrelated.id, 'reroute')).status, 429);
+  f.advance(4001);
   f.ok(await f.attack(alpha.members[0], defender, 'scan'));
-  f.denied(await f.action(defender.members[1].token, { type: 'defense', incidentId: incident.id, command: 'block' }));
-  f.advance(2001);
-  f.ok(await f.action(defender.members[1].token, { type: 'defense', incidentId: incident.id, command: 'block' }));
+  assert.equal((await respond(incident.id, 'reroute')).status, 429);
+  f.advance(1001);
+  f.ok(await respond(incident.id, 'reroute'));
   f.advance(5001);
-  f.denied(await f.action(defender.members[1].token, { type: 'defense', incidentId: incident.id, command: 'block' }));
-  f.ok(await f.attack(alpha.members[0], defender, 'reconnect'));
-  f.advance(3001);
+  f.denied(await respond(incident.id, 'reroute'));
   f.ok(await f.attack(alpha.members[0], defender, 'scan'));
-  f.ok(await f.action(defender.members[1].token, { type: 'defense', incidentId: incident.id, command: 'block' }));
-  const final = (await f.snapshot()).teams.find(team => team.id === defender.id);
-  assert.equal(final.defenseCount, 3);
-  assert.equal(final.score, 15);
+  f.advance(4001);
+  f.ok(await f.attack(alpha.members[0], defender, 'inspect'));
+  f.denied(await respond(incident.id, 'reroute'));
+  f.ok(await respond(incident.id, 'block'));
+  assert.equal((await f.snapshot()).incidents.find(i => i.id === incident.id).status, 'blocked');
+  f.advance(8001);
+  f.ok(await f.attack(alpha.members[0], defender, 'reconnect'));
+  for (const command of ['scan', 'inspect', 'access']) {
+    f.advance(4001);
+    f.ok(await f.attack(alpha.members[0], defender, command));
+  }
+  f.denied(await respond(incident.id, 'block'));
+  f.ok(await respond(incident.id, 'revoke'));
+  const final = await f.snapshot();
+  assert.equal(final.incidents.find(i => i.id === incident.id).stage, 2);
+  assert.equal(final.teams.find(team => team.id === defender.id).defenseCount, 4);
+  assert.equal(final.teams.find(team => team.id === defender.id).score, 20);
 });
 
 test('download tickets authorize PDF bytes once and remain separate from capture scoring', async t => {
@@ -272,6 +286,37 @@ test('download tickets authorize PDF bytes once and remain separate from capture
   const team = (await f.snapshot()).teams.find(team => team.id === alpha.id);
   assert.equal(team.captureCount, 1);
   assert.equal(team.score, 50);
+});
+
+test('switching targets closes only the requesting attacker and cannot bypass cooldown or duplicate captures', async t => {
+  const f = await fixture(t);
+  const [alpha, beta, gamma] = await f.teams(3, [['attack', 'attack', 'defense'], ['attack', 'defense', 'defense'], ['attack', 'defense', 'defense']]);
+  await f.start();
+  f.ok(await f.attack(alpha.members[0], beta, 'scan'));
+  f.ok(await f.attack(alpha.members[1], beta, 'scan'));
+  const before = await f.snapshot();
+  f.denied(await f.action(alpha.members[2].token, { type: 'attack-abandon' }));
+  f.ok(await f.action(alpha.members[0].token, { type: 'attack-abandon' }));
+  let state = await f.snapshot();
+  assert.equal(state.incidents.find(i => i.attackerId === alpha.members[0].participantId).status, 'abandoned');
+  assert.deepEqual(state.incidents.find(i => i.attackerId === alpha.members[1].participantId), before.incidents.find(i => i.attackerId === alpha.members[1].participantId));
+  assert.equal(state.teams.find(team => team.id === alpha.id).score, 0);
+  assert.equal((await f.attack(alpha.members[0], gamma, 'scan')).status, 429);
+  f.advance(4001);
+  await f.capture(alpha.members[0], gamma);
+  f.denied(await f.attack(alpha.members[0], gamma, 'scan'));
+  f.ok(await f.attack(alpha.members[0], beta, 'scan'));
+  state = await f.snapshot();
+  assert.equal(state.incidents.filter(i => i.attackerId === alpha.members[0].participantId && i.status === 'active')[0].stage, 1);
+  assert.equal(state.teams.find(team => team.id === alpha.id).captureCount, 1);
+  f.ok(await f.action(alpha.members[0].token, { type: 'attack-abandon' }));
+  f.advance(LIMITS.attackMs);
+  for (const command of ['inspect', 'access', 'extract']) {
+    f.ok(await f.attack(alpha.members[1], beta, command));
+    f.advance(LIMITS.attackMs);
+  }
+  state = await f.snapshot();
+  assert.ok(state.incidents.filter(i => i.attackerId === alpha.members[0].participantId && i.defenderTeamId === beta.id).every(i => i.status === 'abandoned'));
 });
 
 test('manual finish adds survival once and blocks new attack points', async t => {
@@ -350,6 +395,210 @@ test('reopening storage preserves teacher/student access, teams, PDFs and record
   assert.deepEqual(download.data, PDF);
 });
 
+test('guided buttons are consumed once per person, survive reload and require an exact typed command afterwards', async t => {
+  const f = await fixture(t);
+  const [alpha, beta] = await f.teams(2);
+  await f.start();
+  const person = alpha.members[0];
+  const guide = await f.action(person.token, { type: 'command-guide', command: 'scan' });
+  f.ok(guide);
+  const nonce = guide.data.snapshot.viewer.commandGuard.nonce;
+  f.denied(await f.action(person.token, { type: 'command-guide', command: 'scan' }));
+  f.ok(await f.request(f.prefix + '/action', { token: person.token, body: { type: 'attack', command: 'scan', targetTeamId: beta.id, entryMode: 'guided', nonce } }));
+  await f.restart();
+  const current = await f.snapshot(person.token);
+  assert.deepEqual(current.viewer.commandGuard.guidedUsed, ['scan']);
+  f.advance(LIMITS.attackMs);
+  const before = await f.snapshot();
+  for (const command of ['INSPECT', 'inspect extra', 'inspec', '']) {
+    f.denied(await f.attack(person, beta, command));
+    assert.deepEqual((await f.snapshot()).incidents, before.incidents);
+  }
+  f.denied(await f.action(person.token, { type: 'attack', command: 'inspect', targetTeamId: beta.id, entryMode: 'guided' }));
+  f.ok(await f.attack(person, beta, 'inspect'));
+  const incident = (await f.snapshot()).incidents[0];
+  f.ok(await f.action(beta.members[1].token, { type: 'defense', incidentId: incident.id, command: 'block' }));
+  f.advance(LIMITS.attackMs);
+  f.ok(await f.attack(person, beta, 'reconnect'));
+  f.advance(LIMITS.attackMs);
+  f.ok(await f.attack(person, beta, 'scan'));
+  f.denied(await f.action(person.token, { type: 'command-guide', command: 'scan' }));
+  assert.equal((await f.snapshot()).teamMetrics.find(m => m.teamId === alpha.id).members[0].attackByCommand.scan, 2);
+});
+
+test('concurrent replay accepts one command and autoclick locks persist without blocking other players', async t => {
+  const f = await fixture(t);
+  const [alpha, beta] = await f.teams(2, [['attack', 'attack', 'defense'], ['attack', 'defense', 'defense']]);
+  await f.start();
+  const person = alpha.members[0];
+  const current = await f.snapshot(person.token);
+  const body = { type: 'attack', targetTeamId: beta.id, command: 'scan', entryMode: 'typed', nonce: current.viewer.commandGuard.nonce };
+  const results = await Promise.all([0, 1].map(() => f.request(f.prefix + '/action', { token: person.token, body })));
+  assert.equal(results.filter(result => result.status === 200).length, 1);
+  assert.equal((await f.snapshot()).incidents[0].stage, 1);
+  f.advance(LIMITS.attackMs);
+  f.denied(await f.request(f.prefix + '/action', { token: person.token, body })); // Old nonce even after the interval.
+  for (let count = 0; count < 3; count++) f.denied(await f.request(f.prefix + '/action', { token: person.token, body: { ...body, nonce: 'invalid' } }));
+  let locked = await f.snapshot(person.token);
+  assert.equal(locked.viewer.commandGuard.lockedUntil - locked.serverNow, 8000);
+  await f.restart();
+  locked = await f.snapshot(person.token);
+  f.denied(await f.attack(person, beta, 'inspect'));
+  f.ok(await f.attack(alpha.members[1], beta, 'scan'));
+  const privateNonce = locked.viewer.commandGuard.nonce;
+  assert.equal(JSON.stringify(await f.snapshot(alpha.members[1].token)).includes(privateNonce), false);
+  assert.equal(JSON.stringify(await f.snapshot()).includes(privateNonce), false);
+  assert.equal(JSON.stringify(await f.snapshot(null)).includes(privateNonce), false);
+  f.advance(8000);
+  f.ok(await f.attack(person, beta, 'inspect'));
+  assert.equal((await f.snapshot()).incidents.find(i => i.attackerId === person.participantId).stage, 2);
+});
+
+test('simultaneous defenders share a bounded reserve; invalid defenses cost nothing and recharge cannot be duplicated', async t => {
+  const f = await fixture(t);
+  const [alpha, beta] = await f.teams(2, [['attack', 'attack', 'defense'], ['attack', 'defense', 'defense']]);
+  await f.start();
+  await Promise.all(alpha.members.slice(0, 2).map(async person => f.ok(await f.attack(person, beta, 'scan'))));
+  const incidents = (await f.snapshot()).incidents;
+  const respond = (index, command) => f.action(beta.members[index + 1].token, { type: 'defense', incidentId: incidents[index].id, command });
+  f.denied(await respond(0, 'block'));
+  assert.equal((await f.snapshot()).teams.find(t => t.id === beta.id).defenseReserve.charges, 2);
+  const first = await Promise.all([0, 1].map(index => respond(index, 'reroute')));
+  first.forEach(f.ok);
+  let team = (await f.snapshot()).teams.find(t => t.id === beta.id);
+  assert.equal(team.score, 10);
+  assert.equal(team.defenseReserve.charges, 0);
+  f.advance(4000);
+  await Promise.all(alpha.members.slice(0, 2).map(async person => f.ok(await f.attack(person, beta, 'scan'))));
+  f.advance(1000);
+  f.denied(await respond(0, 'reroute'));
+  f.denied(await respond(1, 'reroute'));
+  assert.equal((await f.snapshot()).teams.find(t => t.id === beta.id).score, 10);
+  f.advance(3000);
+  const racing = await Promise.all([0, 1].map(index => respond(index, 'reroute')));
+  assert.equal(racing.filter(result => result.status === 200).length, 1);
+  f.denied(racing.find(result => result.status >= 400));
+  team = (await f.snapshot()).teams.find(t => t.id === beta.id);
+  assert.equal(team.defenseReserve.charges, 0);
+  assert.equal(team.defenseCount, 3);
+  assert.equal(team.score, 15);
+  f.advance(8000);
+  assert.equal((await f.snapshot()).teams.find(t => t.id === beta.id).defenseReserve.charges, 1);
+  f.advance(100000);
+  assert.equal((await f.snapshot()).teams.find(t => t.id === beta.id).defenseReserve.charges, 2);
+});
+
+test('detailed team metrics count distinct leaks and keep individual command data private', async t => {
+  const f = await fixture(t);
+  const [alpha, beta, gamma] = await f.teams();
+  await f.start();
+  await f.capture(alpha.members[0], beta);
+  await f.capture(gamma.members[0], beta);
+  const teacher = await f.snapshot();
+  assert.equal(teacher.teams.find(t => t.id === beta.id).leakCount, 2);
+  assert.equal(teacher.ranking.find(t => t.id === beta.id).leakCount, 2);
+  const detail = teacher.teamMetrics.find(m => m.teamId === beta.id);
+  assert.deepEqual(detail.leaks.map(l => l.teamName).sort(), [alpha.name, gamma.name].sort());
+  const attackerDetail = teacher.teamMetrics.find(m => m.teamId === alpha.id);
+  assert.equal(attackerDetail.attackCommands, 4);
+  assert.equal(attackerDetail.members[0].captures, 1);
+  assert.equal(attackerDetail.points.captures, 50);
+  assert.equal(attackerDetail.capturedTeams[0].teamName, beta.name);
+  f.denied(await f.attack(alpha.members[0], beta, 'scan'));
+  assert.equal((await f.snapshot()).teams.find(t => t.id === beta.id).leakCount, 2);
+  assert.deepEqual((await f.snapshot(alpha.members[0].token)).teamMetrics, []);
+  assert.deepEqual((await f.snapshot(null)).teamMetrics, []);
+});
+
+test('all ten teacher effects are scoped, bounded, nonstacking and cleared at finish without affecting scores', async t => {
+  const f = await fixture(t);
+  const [alpha, beta] = await f.teams(2);
+  await f.start();
+  assert.equal(EFFECTS.length, 10);
+  f.denied(await f.action(alpha.members[0].token, { type: 'effect', teamId: beta.id, effectId: 'glitch', seconds: 5 }));
+  for (const seconds of [0, 21]) f.denied(await f.action(f.activity.token, { type: 'effect', teamId: beta.id, effectId: 'glitch', seconds }));
+  f.denied(await f.action(f.activity.token, { type: 'effect', teamId: beta.id, effectId: 'invalid', seconds: 5 }));
+  for (const effect of EFFECTS) {
+    f.ok(await f.action(f.activity.token, { type: 'effect', teamId: beta.id, effectId: effect.id, seconds: 5 }));
+    f.denied(await f.action(f.activity.token, { type: 'effect', teamId: beta.id, effectId: effect.id, seconds: 5 }));
+    assert.equal((await f.snapshot(beta.members[0].token)).effects[0].effectId, effect.id);
+    assert.deepEqual((await f.snapshot(alpha.members[0].token)).effects, []);
+    assert.deepEqual((await f.snapshot(null)).effects, []);
+    f.advance(5000);
+    assert.deepEqual((await f.snapshot(beta.members[0].token)).effects, []);
+  }
+  assert.ok((await f.snapshot()).teams.every(team => team.score === 0));
+  f.ok(await f.action(f.activity.token, { type: 'effect', teamId: beta.id, effectId: 'fog' }));
+  f.ok(await f.action(f.activity.token, { type: 'effect-clear', teamId: beta.id }));
+  assert.deepEqual((await f.snapshot()).effects, []);
+  f.ok(await f.action(f.activity.token, { type: 'effect', teamId: beta.id, effectId: 'fog' }));
+  f.ok(await f.action(f.activity.token, { type: 'finish' }));
+  assert.deepEqual((await f.snapshot()).effects, []);
+  assert.ok((await f.snapshot()).teams.every(team => team.score === 50));
+});
+
+test('existing activities migrate analyst roles without losing PDFs, points or captures', () => {
+  const now = Date.UTC(2026, 9, 8, 15);
+  const state = newActivity({ title: 'Atividade em andamento' }, 'teacher-token', now);
+  const personId = addParticipant(state, { name: 'Integrante anterior' }, 'student-token', now);
+  const person = state.participants[0];
+  person.role = 'analyst'; person.teamId = 'old-team';
+  delete person.commandGuard; delete person.metrics; delete state.effects; delete state.metricsStartedAt;
+  state.status = 'running';
+  state.teams.push({ id: 'old-team', name: 'Grupo anterior', memberIds: [personId], document: { key: 'private.pdf', name: 'trabalho.pdf', size: 1024 }, score: 55, captureCount: 1, defenseCount: 1, survivalBonus: 0, compromised: false });
+  state.captures.push({ id: 'old-capture', attackerId: personId, attackerTeamId: 'old-team', defenderTeamId: 'other-team', at: now });
+  assert.equal(normalizeState(state, now), true);
+  assert.equal(normalizeState(state, now), false);
+  assert.equal(person.role, 'defense');
+  assert.equal(state.teams[0].score, 55);
+  assert.equal(state.teams[0].document.key, 'private.pdf');
+  assert.equal(state.captures[0].id, 'old-capture');
+  assert.equal(engineSnapshot(state, viewerFor(state, 'student-token'), now).teams[0].defenseReserve.charges, 2);
+});
+
+test('an attentive defender can resist one attacker but continuous simultaneous pressure creates a capture opportunity', () => {
+  function simulate(attackerCount) {
+    const state = newActivity({ title: 'Ensaio de equilíbrio' }, 'teacher', 1);
+    const makeTeam = (id, name) => ({ id, name, memberIds: [], document: { key: id + '.pdf' }, score: 0, captureCount: 0, defenseCount: 0, survivalBonus: 0, compromised: false, defenseReserve: { charges: LIMITS.defenseCapacity, updatedAt: 1 } });
+    state.teams = [makeTeam('attackers', 'Ataque'), makeTeam('defenders', 'Defesa')];
+    const attackers = [];
+    function person(name, role, teamId) {
+      const id = addParticipant(state, { name }, name + '-token', 1);
+      const member = state.participants.find(p => p.id === id);
+      member.teamId = teamId; member.role = role;
+      state.teams.find(team => team.id === teamId).memberIds.push(id);
+      return id;
+    }
+    for (let index = 0; index < attackerCount; index++) attackers.push(person('Ataque ' + index, 'attack', 'attackers'));
+    const defenderId = person('Defesa', 'defense', 'defenders');
+    state.status = 'running'; state.startedAt = 1; state.endsAt = 120001;
+    function send(participantId, input, now) {
+      const member = state.participants.find(p => p.id === participantId);
+      return engineAction(state, { kind: 'student', participantId, teamId: member.teamId, role: member.role }, { ...input, entryMode: 'typed', nonce: member.commandGuard.nonce }, now);
+    }
+    for (let now = 1; now <= state.endsAt && !state.teams[1].compromised; now += 250) {
+      for (const participantId of attackers) {
+        const member = state.participants.find(p => p.id === participantId);
+        if (now < member.commandGuard.cooldownUntil) continue;
+        const incident = state.incidents.find(i => i.attackerId === participantId && ['active', 'blocked'].includes(i.status));
+        send(participantId, { type: 'attack', targetTeamId: 'defenders', command: incident?.status === 'blocked' ? 'reconnect' : ['scan', 'inspect', 'access', 'extract'][incident?.stage || 0] }, now);
+      }
+      const incoming = state.incidents.filter(i => i.defenderTeamId === 'defenders' && i.status === 'active' && i.stage > 0 && now - i.lastActionAt >= 1000).sort((a, b) => b.stage - a.stage)[0];
+      const defender = state.participants.find(p => p.id === defenderId);
+      if (incoming && now >= defender.commandGuard.cooldownUntil) send(defenderId, { type: 'defense', incidentId: incoming.id, command: ['', 'reroute', 'block', 'revoke'][incoming.stage] }, now);
+    }
+    return state;
+  }
+  const single = simulate(1);
+  assert.equal(single.teams[1].compromised, false);
+  assert.ok(single.teams[1].defenseCount > 0);
+  const simultaneous = simulate(2);
+  assert.equal(simultaneous.teams[1].compromised, true);
+  assert.ok(simultaneous.teams[1].defenseCount > 0);
+  assert.equal(simultaneous.captures.length, 1);
+  assert.ok(simultaneous.captures[0].at > LIMITS.attackMs * 3, 'Defense must delay the capture beyond an uncontested attack');
+});
+
 test('60 students and 20 concurrent teams keep all participants, captures and points', async t => {
   const f = await fixture(t);
   const people = await Promise.all(Array.from({ length: 60 }, (_, index) => f.student(`Participante de carga ${index + 1}`)));
@@ -365,7 +614,7 @@ test('60 students and 20 concurrent teams keep all participants, captures and po
   assert.equal(state.teams.length, 20);
   assert.equal(new Set(state.teams.flatMap(team => team.memberIds)).size, 60);
   assert.equal(state.teams.reduce((sum, team) => sum + team.memberIds.length, 0), 60);
-  const roles = ['attack', 'defense', 'analyst'];
+  const roles = ['attack', 'defense', 'defense'];
   await Promise.all(people.map(async (person, index) => {
     f.ok(await f.action(person.token, { type: 'role', role: roles[index % 3] }));
   }));
@@ -381,7 +630,7 @@ test('60 students and 20 concurrent teams keep all participants, captures and po
       const target = attackingTeams[(index + 1) % attackingTeams.length].team;
       f.ok(await f.attack(person, target, command));
     }));
-    f.advance(3001);
+    f.advance(4001);
   }
   await Promise.all(people.map(async person => f.ok(await f.request(f.prefix, { token: person.token }))));
   state = await f.snapshot();
