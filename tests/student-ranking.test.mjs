@@ -49,7 +49,12 @@ function game(mode = 'classic', sizes = [2, 1, 1]) {
     advance: ms => { now += ms; }, get now() { return now; } };
 }
 
-test('student rankings include waiting students, use Brazilian alphabetical tie breaks and share rank positions', () => {
+function assertGroupScores(view) {
+  const teams = new Map(view.ranking.map(team => [team.id, team]));
+  for (const row of view.studentRanking) assert.equal(row.score, teams.get(row.teamId)?.score ?? 0, row.name);
+}
+
+test('student rankings inherit group totals, include waiting students and use Brazilian alphabetical tie breaks', () => {
   const g = game();
   const initial = g.view();
   assert.deepEqual(initial.studentRanking.map(row => row.name), ['Ágata', 'Ana', 'Bruno', 'Carlos', 'José']);
@@ -59,13 +64,47 @@ test('student rankings include waiting students, use Brazilian alphabetical tie 
   g.capture(g.people[0], g.teams[1].id);
   g.capture(g.people[1], g.teams[2].id);
   const rows = g.view().studentRanking;
-  assert.deepEqual(rows.map(row => [row.name, row.score, row.position]), [['Ana', 50, 1], ['José', 50, 1], ['Ágata', 0, 3], ['Bruno', 0, 3], ['Carlos', 0, 3]]);
+  assert.deepEqual(rows.map(row => [row.name, row.score, row.position]), [['Ana', 100, 1], ['José', 100, 1], ['Ágata', 0, 3], ['Bruno', 0, 3], ['Carlos', 0, 3]]);
   assert.equal(rows[0].teamId, g.teams[0].id); assert.equal(rows[0].teamName, 'Equipe 1');
-  assert.equal(rows[0].role, 'both'); assert.deepEqual(rows[0].points, { captures: 50, rescues: 0, defenses: 0 });
+  assert.equal(rows[0].role, 'both');
+  assertGroupScores(g.view());
+});
+
+test('Mestres do Quiz awards all 1005 points to Heitor Almeida and Marcelo Mory, including tied groups', () => {
+  const g = game();
+  g.capture(g.people[0], g.teams[1].id);
+  g.teacher({ type: 'finish' });
+  g.state.participants.find(member => member.id === g.people[0].id).name = 'Heitor Almeida';
+  g.state.participants.find(member => member.id === g.people[1].id).name = 'Marcelo Mory';
+  g.state.captures[0].points = 450;
+  g.teams[0].name = 'Mestres do Quiz'; g.teams[0].score = 1005;
+  g.teams[1].score = 1005; g.teams[2].score = 800;
+  const before = structuredClone(g.state), view = g.view();
+  assert.deepEqual(view.studentRanking.map(row => [row.name, row.score, row.position]), [
+    ['Bruno', 1005, 1], ['Heitor Almeida', 1005, 1], ['Marcelo Mory', 1005, 1], ['Carlos', 800, 4], ['Ágata', 0, 5]
+  ]);
+  assert.deepEqual(view.studentRanking.filter(row => row.teamId === g.teams[0].id).map(row => row.teamName), ['Mestres do Quiz', 'Mestres do Quiz']);
+  assert.equal(view.studentRankingInfo.source, 'team');
+  assert.equal(view.studentRankingInfo.collectiveBonusesIncluded, true);
+  assertGroupScores(view);
+  assert.deepEqual(g.state, before);
+});
+
+test('a student without a valid group keeps zero points even when individual metrics exist', () => {
+  const g = game();
+  const waiting = g.state.participants.find(member => member.id === g.waitingId);
+  waiting.teamId = 'missing-team';
+  waiting.metrics.defenseCommands = 90;
+  g.state.captures.push({ attackerId: waiting.id, attackerTeamId: waiting.teamId, points: 450 });
+  const before = structuredClone(g.state), view = g.view();
+  const row = view.studentRanking.find(member => member.id === waiting.id);
+  assert.equal(row.score, 0); assert.equal(row.teamId, null); assert.equal(row.teamName, '');
+  assertGroupScores(view);
+  assert.deepEqual(g.state, before);
 });
 
 for (const mode of ['classic', 'campaign']) {
-  test(`${mode}: successful captures and human defenses score only their actual participants`, () => {
+  test(`${mode}: all group members inherit successful captures, defenses and the finishing bonus`, () => {
     const g = game(mode), [attacker, teammate, defender] = g.people;
     g.ok(g.send(attacker, { type: 'attack', targetTeamId: g.teams[1].id, command: 'scan' }));
     let incident = g.state.incidents.find(i => i.attackerId === attacker.id);
@@ -78,17 +117,20 @@ for (const mode of ['classic', 'campaign']) {
     assert.equal(g.send(defender, { type: 'defense', incidentId: incident.id, command: 'reroute' }).rejection.status, 409);
     g.capture(attacker, g.teams[1].id);
     const view = g.view(), row = view.studentRanking.find(row => row.id === attacker.id);
-    assert.equal(row.score, 50); assert.equal(row.captures, 1); assert.equal(row.defenses, 0);
-    assert.equal(view.studentRanking.find(row => row.id === teammate.id).score, 0);
+    assert.equal(row.score, 50);
+    assert.equal(view.studentRanking.find(row => row.id === teammate.id).score, 50);
     const defenseRow = view.studentRanking.find(row => row.id === defender.id);
-    assert.equal(defenseRow.score, 5); assert.equal(defenseRow.defenses, 1);
-    assert.deepEqual(defenseRow.points, { captures: 0, rescues: 0, defenses: 5 });
+    assert.equal(defenseRow.score, 5);
     assert.equal(view.studentRankingInfo.partial, false);
+    assertGroupScores(view);
     const before = structuredClone(g.state);
     assert.deepEqual(g.view().studentRanking, view.studentRanking); assert.deepEqual(g.state, before);
     g.teacher({ type: 'finish' });
-    assert.deepEqual(g.view().studentRanking, view.studentRanking);
-    assert.equal(g.view().studentRankingInfo.collectiveBonusesIncluded, false);
+    const finished = g.view();
+    assert.equal(finished.studentRanking.find(row => row.id === attacker.id).score, 100);
+    assert.equal(finished.studentRanking.find(row => row.id === teammate.id).score, 100);
+    assert.equal(finished.studentRankingInfo.collectiveBonusesIncluded, true);
+    assertGroupScores(finished);
     assert.equal(g.teams[0].survivalBonus, 50); assert.equal(g.teams[0].score, 100);
   });
 
@@ -106,7 +148,7 @@ for (const mode of ['classic', 'campaign']) {
   });
 }
 
-test('campaign recaptures and rescues retain their original recipient and never multiply a rewarded ledger', () => {
+test('campaign recaptures and rescues give each member the total group score without multiplying repeated rewards', () => {
   const g = game('campaign'), [attacker, teammate, defender] = g.people;
   g.capture(attacker, g.teams[1].id);
   g.capture(defender, g.teams[1].id);
@@ -115,15 +157,15 @@ test('campaign recaptures and rescues retain their original recipient and never 
   const view = g.view();
   assert.equal(g.state.captures[0].count, 2); assert.equal(g.state.rescues[0].count, 2);
   assert.equal(view.studentRanking.find(row => row.id === attacker.id).score, 50);
-  assert.equal(view.studentRanking.find(row => row.id === teammate.id).score, 0);
+  assert.equal(view.studentRanking.find(row => row.id === teammate.id).score, 50);
   const rescueRow = view.studentRanking.find(row => row.id === defender.id);
-  assert.equal(rescueRow.score, 50); assert.equal(rescueRow.rescues, 1);
-  assert.deepEqual(rescueRow.points, { captures: 0, rescues: 50, defenses: 0 });
+  assert.equal(rescueRow.score, 50);
   assert.equal(view.studentRankingInfo.partial, false);
   assert.equal(g.teams[0].score, 50); assert.equal(g.teams[1].score, 50);
+  assertGroupScores(view);
 });
 
-test('Interpol awards personal defenses while keeping wave, control and protection bonuses collective', () => {
+test('all members inherit Interpol defenses, waves, control and protection bonuses', () => {
   const g = game('campaign', [2, 1]), [attacker, teammate] = g.people;
   g.capture(attacker, g.teams[1].id);
   g.advance(4000); tickCampaign(g.state, g.now);
@@ -137,17 +179,20 @@ test('Interpol awards personal defenses while keeping wave, control and protecti
   assert.equal(g.send(teammate, { type: 'defense', incidentId: botId, command: response() }).rejection.status, 409);
   let view = g.view();
   assert.equal(g.teams[0].campaign.wavesWon, 1); assert.equal(g.teams[0].score, 90);
-  assert.equal(view.studentRanking.find(row => row.id === attacker.id).score, 50);
-  assert.equal(view.studentRanking.find(row => row.id === teammate.id).score, 15);
+  assert.equal(view.studentRanking.find(row => row.id === attacker.id).score, 90);
+  assert.equal(view.studentRanking.find(row => row.id === teammate.id).score, 90);
   assert.equal(view.studentRankingInfo.partial, false);
+  assertGroupScores(view);
   g.advance(60000); tickCampaign(g.state, g.now); g.teacher({ type: 'finish' });
   view = g.view();
   assert.ok(g.teams[0].campaign.controlCount > 0);
-  assert.equal(view.studentRanking.find(row => row.id === teammate.id).score, 15);
-  assert.equal(view.studentRanking.find(row => row.id === attacker.id).score, 50);
+  assert.equal(view.studentRanking.find(row => row.id === teammate.id).score, g.teams[0].score);
+  assert.equal(view.studentRanking.find(row => row.id === attacker.id).score, g.teams[0].score);
+  assert.ok(g.teams[0].score > 90);
+  assertGroupScores(view);
 });
 
-test('legacy results credit known captures without inventing missing defense or rescue attribution', () => {
+test('legacy results inherit complete group totals even without personal metrics or reward attribution', () => {
   const g = game('campaign');
   g.capture(g.people[0], g.teams[1].id);
   g.capture(g.people[2], g.teams[1].id);
@@ -160,24 +205,32 @@ test('legacy results credit known captures without inventing missing defense or 
   const originalScores = legacy.teams.map(team => team.score), originalCaptures = structuredClone(legacy.captures);
   assert.equal(normalizeState(legacy, g.now + 1000), true);
   let view = snapshot(legacy, { kind: 'teacher' }, g.now + 1000);
-  assert.equal(view.studentRanking.find(row => row.id === g.people[0].id).score, 50);
-  assert.equal(view.studentRanking.find(row => row.id === g.people[2].id).score, 0);
-  assert.equal(view.studentRankingInfo.partial, true);
-  assert.equal(view.studentRankingInfo.unattributedDefenses, 4);
-  assert.equal(view.studentRankingInfo.unattributedRescues, 1);
+  assert.equal(view.studentRanking.find(row => row.id === g.people[0].id).score, 70);
+  assert.equal(view.studentRanking.find(row => row.id === g.people[1].id).score, 70);
+  assert.equal(view.studentRanking.find(row => row.id === g.people[2].id).score, 50);
+  assert.equal(view.studentRankingInfo.source, 'team');
+  assert.equal(view.studentRankingInfo.partial, false);
+  assert.equal(view.studentRankingInfo.unattributedDefenses, 0);
+  assert.equal(view.studentRankingInfo.unattributedRescues, 0);
   assert.equal(view.studentRankingInfo.unattributedCaptures, 0);
   assert.equal(view.studentRankingInfo.metricsStartedAt, g.now + 1000);
-  assert.match(view.studentRankingInfo.historicalNote, /sem identificação individual/);
+  assert.equal(view.studentRankingInfo.historicalNote, '');
+  assert.equal(view.studentRankingInfo.collectiveBonusesIncluded, true);
+  assertGroupScores(view);
   assert.deepEqual(legacy.teams.map(team => team.score), originalScores);
   assert.deepEqual(legacy.captures, originalCaptures);
   assert.equal(normalizeState(legacy, g.now + 2000), false);
   delete legacy.captures[0].attackerId;
+  legacy.captures = []; legacy.rescues = [];
   view = snapshot(legacy, { kind: 'teacher' }, g.now + 2000);
-  assert.equal(view.studentRankingInfo.unattributedCaptures, 1);
-  assert.ok(view.studentRanking.every(row => row.score === 0));
+  assert.equal(view.studentRankingInfo.unattributedCaptures, 0);
+  assert.equal(view.studentRankingInfo.partial, false);
+  assert.equal(view.studentRanking.find(row => row.id === g.people[0].id).score, 70);
+  assert.equal(view.studentRanking.find(row => row.id === g.people[2].id).score, 50);
+  assertGroupScores(view);
 });
 
-test('saved and reopened activities retain identical personal rankings and group scores', async t => {
+test('saved and reopened activities retain identical student rankings with inherited group scores', async t => {
   const g = game('campaign');
   g.capture(g.people[0], g.teams[1].id); g.capture(g.people[2], g.teams[1].id); g.teacher({ type: 'finish' });
   const expected = g.view(), before = structuredClone(g.state);

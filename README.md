@@ -27,7 +27,7 @@ O dashboard lista as atividades salvas, das mais recentes às mais antigas, com 
 
 Em uma atividade encerrada, alterne entre **Ranking por grupo** e **Ranking por aluno**. O ranking individual inclui todos os participantes, permite buscar por aluno ou grupo e ordenar por **pontos, do maior para o menor**, ou **ordem alfabética**. Empates compartilham a mesma posição por pontos, inclusive na visualização alfabética. Esse detalhamento fica disponível somente para o professor.
 
-A pontuação individual soma os prêmios de capturas e resgates atribuídos ao aluno e os pontos de suas defesas válidas. Recapturas sem prêmio não duplicam pontos. Os bônus coletivos de proteção, controle, ondas da IA e bandeira mestra permanecem no ranking por grupo. Em atividades antigas, o sistema usa os registros individuais disponíveis e informa quando o histórico está parcial; não estima nem divide pontos de grupo entre os alunos.
+Cada aluno carrega a **pontuação total do seu grupo**, incluindo capturas, resgates, defesas e todos os bônus. Por exemplo, se o grupo Mestres do Quiz tem 1005 pontos, Heitor Almeida e Marcelo Mory aparecem com 1005 pontos cada. Essa regra também vale para as atividades anteriores, usando o total já salvo do grupo, sem depender do histórico de ações individuais. Alunos sem grupo aparecem com 0 pontos. O ranking por grupo mantém seus totais originais.
 
 O acesso funciona em outro navegador mesmo sem a sessão original da atividade. A sessão do dashboard dura 12 horas e fica no armazenamento da aba, sem salvar a senha. As sessões antigas continuam válidas. A senha do professor dá acesso às atividades desta instalação; não há contas individuais de professores.
 
