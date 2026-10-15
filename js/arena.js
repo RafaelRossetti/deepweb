@@ -31,6 +31,8 @@
   const toolById = Object.fromEntries(tools.map((tool) => [tool.id,tool]));
   const state = {code:'',token:'',snapshot:null,tab:'operation',public:false,busy:false,pollTimer:null,polling:false,toastTimer:null,serverOffset:0,lastServerAt:0,connected:true,attackCommand:'',defenseCommand:'',entryMode:{attack:null,defense:null,campaign:null},training:{stage:0,status:'active',route:1},selectedMembers:new Set(),renderCache:new Map(),dismissedAlerts:new Set(),queuedAlerts:new Set(),alertQueue:[],alertsInitialized:false,reducedEffects:false};
   let sessionGeneration = 0;
+  const dashboard = {token:'',expiresAt:0,activities:[],hasMore:false,loading:false,visible:false,generation:0,opening:false};
+  let teacherPasswordRequired = false;
 
   function setText(id,text) { const element=$(id); if(element && element.textContent!==String(text??'')) element.textContent=text??''; }
   function setHtml(id,html) { if(state.renderCache.get(id)===html) return; const element=$(id); if(element) {element.innerHTML=html;state.renderCache.set(id,html);} }
@@ -43,13 +45,73 @@
   function updateSavedSession() {const code=$('join-code').value.trim().toUpperCase();const saved=localSession(code);show('saved-session',Boolean(saved?.token));if(saved?.token)setHtml('saved-session',`<p>Há uma sessão de ${saved.viewer?.kind==='teacher'?'professor':'participante'} salva neste navegador.</p><button class="text-button" type="button" data-resume="${escape(code)}">Retomar sessão →</button>`);}
   function updateTeacherSession(){let code='';try{code=localStorage.getItem('thor:lastActivity')||'';}catch{}const saved=localSession(code);const exists=saved?.viewer?.kind==='teacher'&&saved?.token;show('teacher-saved-session',Boolean(exists));if(exists)setHtml('teacher-saved-session',`<p>Você já abriu a atividade ${escape(code)} neste navegador.</p><button type="button" class="text-button" data-resume="${escape(code)}">Continuar minha atividade →</button>`);}
   function apiPath(suffix='') {return `/api/activities/${encodeURIComponent(state.code)}${suffix}`;}
-  async function request(url,{method='GET',body,auth=true}={}) {
-    const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),15000);
-    try {const headers={};if(body!==undefined)headers['Content-Type']='application/json';if(auth && state.token)headers.Authorization=`Bearer ${state.token}`;
+  async function request(url,{method='GET',body,auth=true,authToken=state.token}={}) {
+    const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),15000);const generation=sessionGeneration;
+    try {const headers={};if(body!==undefined)headers['Content-Type']='application/json';if(auth && authToken)headers.Authorization=`Bearer ${authToken}`;
       const response=await fetch(url,{method,headers,body:body===undefined?undefined:JSON.stringify(body),signal:controller.signal,cache:'no-store'});
       let data;try{data=await response.json();}catch{throw new Error('O servidor retornou uma resposta inesperada. Verifique se a arena está em execução.');}
-      if(!response.ok){if(data.snapshot?.activity?.code===state.code)applySnapshot(data.snapshot);throw new Error(data.error||'Não foi possível concluir a solicitação.');}return data;
+      if(!response.ok){if(generation===sessionGeneration&&authToken===state.token&&data.snapshot?.activity?.code===state.code)applySnapshot(data.snapshot);const error=new Error(data.error||'Não foi possível concluir a solicitação.');error.status=response.status;throw error;}return data;
     }catch(error){if(error.name==='AbortError')throw new Error('O servidor demorou para responder. Tente novamente.');if(error instanceof TypeError)throw new Error('Não foi possível conectar à arena. Verifique sua conexão.');throw error;}finally{clearTimeout(timeout);}
+  }
+  function clearTeacherAccess() {
+    dashboard.token='';dashboard.expiresAt=0;dashboard.activities=[];dashboard.hasMore=false;
+    try{sessionStorage.removeItem('thor:teacherDashboard');}catch{}
+  }
+  function leaveActivity() {
+    sessionGeneration++;clearTimeout(state.pollTimer);state.busy=false;state.code='';state.snapshot=null;state.token='';state.lastServerAt=0;state.renderCache.clear();state.alertQueue=[];
+    if($('player-alert').open)$('player-alert').close();document.body.dataset.effect='';show('effect-hud',false);show('effect-decoration',false);show('arena-view',false);document.body.classList.remove('public-view');
+  }
+  function showEntry(mode=null) {
+    leaveActivity();dashboard.visible=false;dashboard.generation++;dashboard.loading=false;show('teacher-dashboard',false);show('entry-view',true);history.replaceState(null,'',location.pathname);
+    try{$('join-code').value=localStorage.getItem('thor:lastActivity')||'';}catch{}updateSavedSession();updateTeacherSession();const needsPassword=teacherPasswordRequired&&!(dashboard.token&&dashboard.expiresAt>Date.now());show('teacher-password-field',needsPassword);$('teacher-password').required=needsPassword;entryMode(mode);
+  }
+  function dashboardAuthView() {
+    const authenticated=Boolean(dashboard.token);show('dashboard-login',!authenticated);show('dashboard-content',authenticated);show('dashboard-new',authenticated);show('dashboard-logout',authenticated);
+  }
+  async function showTeacherDashboard() {
+    leaveActivity();dashboard.generation++;dashboard.loading=false;dashboard.visible=true;show('entry-view',false);show('teacher-dashboard',true);history.replaceState(null,'',`${location.pathname}?mode=dashboard`);
+    if(dashboard.expiresAt<=Date.now())clearTeacherAccess();dashboardAuthView();show('dashboard-login-error',false);
+    if(dashboard.token)await loadTeacherActivities();else (teacherPasswordRequired?$('dashboard-password'):$('dashboard-login-button')).focus();
+  }
+  async function loginTeacherDashboard() {
+    const button=$('dashboard-login-button');if(button.disabled)return;button.disabled=true;const generation=dashboard.generation;show('dashboard-login-error',false);
+    try{
+      const result=await request('/api/teacher/login',{method:'POST',auth:false,body:{password:$('dashboard-password').value}});
+      if(generation!==dashboard.generation||!dashboard.visible)return;
+      dashboard.token=result.token;dashboard.expiresAt=result.expiresAt;$('dashboard-password').value='';
+      try{sessionStorage.setItem('thor:teacherDashboard',JSON.stringify({token:result.token,expiresAt:result.expiresAt}));}catch{}
+      dashboardAuthView();await loadTeacherActivities();
+    }catch(error){if(generation===dashboard.generation&&dashboard.visible){setText('dashboard-login-error',error.message);show('dashboard-login-error',true);}}finally{button.disabled=false;}
+  }
+  function renderTeacherActivities() {
+    const query=$('dashboard-search').value.trim().toLocaleLowerCase('pt-BR');const status=$('dashboard-status').value;
+    const activities=dashboard.activities.filter(activity=>(status==='all'||activity.status===status)&&`${activity.title} ${activity.code}`.toLocaleLowerCase('pt-BR').includes(query));
+    const labels={lobby:'Aguardando início',preparing:'Em preparação',running:'Em andamento',finished:'Encerrada'};
+    const date=value=>value?new Date(value).toLocaleString('pt-BR',{dateStyle:'short',timeStyle:'short'}):'—';
+    setText('dashboard-count',`${activities.length} ${activities.length===1?'atividade exibida':'atividades exibidas'} · ${dashboard.activities.length} carregadas${dashboard.hasMore?' · há mais atividades no histórico':''}`);
+    setHtml('dashboard-activities',activities.map(activity=>`<article class="panel activity-card"><div class="activity-card-heading"><span class="chip activity-status status-${escape(activity.status)}">${escape(labels[activity.status]||activity.status)}</span><span class="activity-card-code">${escape(activity.code)}</span></div><h3>${escape(activity.title)}</h3><p class="muted small-text">${activity.mode==='campaign'?'Campanha das Chaves':'Captura de PDFs'}</p><dl class="activity-card-stats"><div><dt>Participantes</dt><dd>${escape(activity.participantCount)}</dd></div><div><dt>Equipes</dt><dd>${escape(activity.teamCount)}</dd></div></dl><p class="activity-card-date">Criada em ${escape(date(activity.createdAt))}${activity.finishedAt?`<br>Encerrada em ${escape(date(activity.finishedAt))}`:''}</p><div class="activity-card-result"><span>${activity.status==='finished'?'Melhor pontuação':'Resultado final'}</span><strong>${activity.winners?.length?activity.winners.map(winner=>`${escape(winner.name)} · ${escape(winner.score)} pts`).join('<br>'):activity.status==='finished'?'Sem equipes formadas':'Disponível ao encerrar'}</strong></div><button type="button" class="button ${activity.status==='finished'?'secondary':'primary'} wide" data-open-history="${escape(activity.code)}">${activity.status==='finished'?'Ver resultados':'Abrir atividade'} →</button></article>`).join('')||`<div class="panel dashboard-empty"><h3>${dashboard.activities.length?'Nenhuma atividade encontrada':'Seu histórico está vazio'}</h3><p class="muted">${dashboard.activities.length?'Ajuste a busca ou a situação selecionada.':'As atividades salvas neste servidor aparecerão aqui. Crie uma nova atividade para começar.'}</p></div>`);
+    show('dashboard-more',dashboard.hasMore);$('dashboard-more').disabled=dashboard.loading;$('dashboard-refresh').disabled=dashboard.loading;$('dashboard-activities').setAttribute('aria-busy',String(dashboard.loading));
+  }
+  async function loadTeacherActivities(append=false) {
+    if(dashboard.loading||!dashboard.token)return;dashboard.loading=true;const generation=++dashboard.generation;const offset=append?dashboard.activities.length:0;
+    show('dashboard-error',false);renderTeacherActivities();if(!append&&!dashboard.activities.length)setText('dashboard-count','Carregando atividades…');
+    try{
+      const result=await request(`/api/teacher/activities?offset=${offset}&limit=50`,{authToken:dashboard.token});
+      if(generation!==dashboard.generation||!dashboard.visible)return;dashboard.activities=append?[...dashboard.activities,...result.activities]:result.activities;dashboard.hasMore=result.hasMore;
+    }catch(error){
+      if(generation!==dashboard.generation||!dashboard.visible)return;
+      if(error.status===401){clearTeacherAccess();dashboardAuthView();setText('dashboard-login-error','Sua sessão expirou. Acesse novamente para consultar o histórico.');show('dashboard-login-error',true);}
+      else{setText('dashboard-error',error.message);show('dashboard-error',true);}
+    }finally{if(generation===dashboard.generation){dashboard.loading=false;renderTeacherActivities();}}
+  }
+  async function openTeacherActivity(code) {
+    if(dashboard.opening)return;dashboard.opening=true;const generation=dashboard.generation;const token=dashboard.token;
+    try{
+      const snapshot=await request(`/api/activities/${encodeURIComponent(code)}`,{authToken:token});
+      if(generation!==dashboard.generation||token!==dashboard.token)return;
+      if(snapshot.viewer.kind!=='teacher')throw new Error('Acesse novamente como professor para abrir os resultados.');
+      dashboard.visible=false;dashboard.generation++;dashboard.loading=false;await enterSession(code,token,snapshot);const url=new URL(location.href);url.searchParams.set('teacher','1');history.replaceState(null,'',url);
+    }catch(error){if(generation===dashboard.generation&&token===dashboard.token){if(error.status===401){clearTeacherAccess();await showTeacherDashboard();}notify(error.message,true);}}finally{dashboard.opening=false;}
   }
   function publicUrl() {const url=new URL(location.pathname,location.origin);url.searchParams.set('activity',state.code);url.searchParams.set('public','1');return url.toString();}
   function setConnected(connected) {state.connected=connected;show('connection-warning',!connected);$('connection-state').classList.toggle('disconnected',!connected);$('connection-state').innerHTML=`<span class="live-dot"></span> ${connected?'Conectado':'Reconectando'}`;}
@@ -64,17 +126,17 @@
     state.entryMode={attack:null,defense:null,campaign:null};$('campaign-command').value='';$('attack-command').value='';$('defense-command').value='';state.alertQueue=[];state.queuedAlerts.clear();state.alertsInitialized=false;state.dismissedAlerts=new Set();try{state.dismissedAlerts=new Set(JSON.parse(localStorage.getItem(`thor:alerts:${code}`)||'[]'));state.reducedEffects=localStorage.getItem('thor:reducedEffects')==='1';}catch{}
     const url=new URL(location.href);url.search='';url.searchParams.set('activity',code);if(isPublic)url.searchParams.set('public','1');history.replaceState(null,'',url);
     if(snapshot)applySnapshot(snapshot);else applySnapshot(await request(apiPath()));
-    show('entry-view',false);show('arena-view',true);document.body.classList.toggle('public-view',isPublic);switchTab(state.tab);schedulePoll();
+    dashboard.visible=false;show('teacher-dashboard',false);show('entry-view',false);show('arena-view',true);document.body.classList.toggle('public-view',isPublic);switchTab(state.tab);schedulePoll();
   }
   function schedulePoll() {clearTimeout(state.pollTimer);if(state.code)state.pollTimer=setTimeout(poll,document.hidden?4000:2000);}
   async function poll() {
     if(!state.code||state.polling){schedulePoll();return;}state.polling=true;const generation=sessionGeneration;
-    try{const snapshot=await request(apiPath());if(generation===sessionGeneration)applySnapshot(snapshot);}catch(error){if(generation===sessionGeneration)setConnected(false);}finally{state.polling=false;if(generation===sessionGeneration)schedulePoll();}
+    try{const snapshot=await request(apiPath());if(generation===sessionGeneration)applySnapshot(snapshot);}catch(error){if(generation===sessionGeneration){if(error.status===401&&state.token===dashboard.token){clearTeacherAccess();await showTeacherDashboard();notify('Sua sessão de professor expirou. Acesse novamente.',true);}else setConnected(false);}}finally{state.polling=false;if(generation===sessionGeneration)schedulePoll();}
   }
   async function mutate(action,outputId) {
-    if(state.busy)return null;state.busy=true;updateEnabled();
-    try{const result=await request(apiPath('/action'),{method:'POST',body:action});applySnapshot(result.snapshot);if(result.message){if(outputId)terminal(outputId,result.message);else notify(result.message);}if(result.download)await downloadDocument(result.download,outputId);return result;
-    }catch(error){if(outputId)terminal(outputId,error.message,'error');notify(error.message,true);return null;}finally{state.busy=false;updateEnabled();}
+    if(state.busy)return null;state.busy=true;const generation=sessionGeneration;updateEnabled();
+    try{const result=await request(apiPath('/action'),{method:'POST',body:action});if(generation!==sessionGeneration)return null;applySnapshot(result.snapshot);if(result.message){if(outputId)terminal(outputId,result.message);else notify(result.message);}if(result.download)await downloadDocument(result.download,outputId);return generation===sessionGeneration?result:null;
+    }catch(error){if(generation===sessionGeneration){if(outputId)terminal(outputId,error.message,'error');notify(error.message,true);}return null;}finally{if(generation===sessionGeneration){state.busy=false;updateEnabled();}}
   }
   async function downloadDocument(download,outputId) {
     const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),15000);
@@ -88,8 +150,9 @@
   function teamReady(team) {const members=teamMembers(team);return members.length>=1&&(campaignMode()||members.every(member=>Boolean(member.role))&&members.some(member=>hasAttack(member.role))&&members.some(member=>hasDefense(member.role)));}
   function render() {
     const snapshot=state.snapshot;const {activity,viewer}=snapshot;const isTeacher=viewer.kind==='teacher';const isStudent=viewer.kind==='student';const isPublic=viewer.kind==='public'||state.public;
+    show('ranking-teacher-metrics',isTeacher);setText('metrics-state-label',activity.status==='finished'?'RESULTADO FINAL':'AO VIVO');setText('events-state-label',activity.status==='finished'?'HISTÓRICO':'AO VIVO');
     setText('activity-name',activity.title);setText('activity-code-label',`ATIVIDADE ${activity.code}`);setText('viewer-badge',isTeacher?'PROFESSOR':isPublic?'TELA PÚBLICA':roles[viewer.role]?.toUpperCase()||'PARTICIPANTE');setText('phase-title',(phaseText[activity.status]||phaseText.lobby)[0]);setText('phase-description',(phaseText[activity.status]||phaseText.lobby)[1]);
-    show('teacher-area',isTeacher);show('student-area',isStudent);show('arena-tabs',!isPublic);show('campaign-tab',campaignMode()&&isStudent);document.querySelectorAll('[data-tool="recover"]').forEach(card=>card.hidden=!campaignMode());if(campaignMode())setText('phase-description',activity.status==='lobby'?'O professor organiza os times. Todos podem atacar e defender; PDFs dos grupos são opcionais.':activity.status==='preparing'?'Estudem as ferramentas: conquistem chaves, abram o dossiê e vençam a IA juntos.':activity.status==='running'?'Disputem as chaves, protejam o cofre e avancem na campanha. O prazo vale para todos.':'Confira as capturas, resgates, ondas da IA e a bandeira mestra no ranking.');
+    show('teacher-dashboard-button',isTeacher);show('teacher-area',isTeacher);show('student-area',isStudent);show('arena-tabs',!isPublic);show('campaign-tab',campaignMode()&&isStudent);document.querySelectorAll('[data-tool="recover"]').forEach(card=>card.hidden=!campaignMode());if(campaignMode())setText('phase-description',activity.status==='lobby'?'O professor organiza os times. Todos podem atacar e defender; PDFs dos grupos são opcionais.':activity.status==='preparing'?'Estudem as ferramentas: conquistem chaves, abram o dossiê e vençam a IA juntos.':activity.status==='running'?'Disputem as chaves, protejam o cofre e avancem na campanha. O prazo vale para todos.':'Confira as capturas, resgates, ondas da IA e a bandeira mestra no ranking.');
     const latest=(snapshot.announcements||[]).slice().sort((a,b)=>timeValue(b.at)-timeValue(a.at))[0];show('alert-section',Boolean(latest));if(latest){setText('latest-alert',latest.text);setText('alert-time',formatTime(latest.at));}
     renderEvents('announcement-list',snapshot.announcements||[],'Nenhum aviso transmitido ainda.');renderRanking();renderBroadcast();renderEffect();
     if(isTeacher)renderTeacher();if(isStudent)renderStudent();if(isPublic)switchTab('ranking');updateClock();updateEnabled();
@@ -276,16 +339,19 @@
   }
   async function uploadPdf(input) {
     const file=input.files?.[0];if(!file||state.busy)return;if(file.size>3*1024*1024){notify('Este PDF ultrapassa 3 MB. Envie uma versão menor.',true);input.value='';return;}if(!/\.pdf$/i.test(file.name)){notify('Selecione um arquivo PDF.',true);input.value='';return;}
-    state.busy=true;updateEnabled();notify(`Enviando ${file.name}…`);
-    try{const buffer=await file.arrayBuffer();const bytes=new Uint8Array(buffer);let binary='';for(let i=0;i<bytes.length;i+=32768)binary+=String.fromCharCode(...bytes.subarray(i,i+32768));const result=await request(apiPath(`/documents/${encodeURIComponent(input.dataset.upload)}`),{method:'POST',body:{name:file.name,base64:btoa(binary)}});applySnapshot(result.snapshot);notify(result.message||'PDF preparado. O cofre já está pronto.');}catch(error){notify(error.message,true);}finally{input.value='';state.busy=false;updateEnabled();}
+    state.busy=true;const generation=sessionGeneration;const url=apiPath(`/documents/${encodeURIComponent(input.dataset.upload)}`);updateEnabled();notify(`Enviando ${file.name}…`);
+    try{const buffer=await file.arrayBuffer();if(generation!==sessionGeneration)return;const bytes=new Uint8Array(buffer);let binary='';for(let i=0;i<bytes.length;i+=32768)binary+=String.fromCharCode(...bytes.subarray(i,i+32768));const result=await request(url,{method:'POST',body:{name:file.name,base64:btoa(binary)}});if(generation!==sessionGeneration)return;applySnapshot(result.snapshot);notify(result.message||'PDF preparado. O cofre já está pronto.');}catch(error){if(generation===sessionGeneration)notify(error.message,true);}finally{input.value='';if(generation===sessionGeneration){state.busy=false;updateEnabled();}}
   }
   async function copyText(value,message) {try{await navigator.clipboard.writeText(value);notify(message);}catch{const textarea=document.createElement('textarea');textarea.value=value;textarea.style.position='fixed';textarea.style.top='-1000px';document.body.append(textarea);textarea.select();const copied=document.execCommand('copy');textarea.remove();notify(copied?message:`Copie este texto: ${value}`,!copied);}}
   function attachEvents() {
-    $('choose-teacher').addEventListener('click',()=>entryMode('teacher'));$('choose-student').addEventListener('click',()=>entryMode('student'));document.querySelectorAll('[data-entry-back]').forEach(button=>button.addEventListener('click',()=>entryMode(null)));
+    $('choose-teacher').addEventListener('click',showTeacherDashboard);$('choose-student').addEventListener('click',()=>entryMode('student'));document.querySelectorAll('[data-entry-back]').forEach(button=>button.addEventListener('click',()=>entryMode(null)));
+    $('dashboard-login').addEventListener('submit',event=>{event.preventDefault();loginTeacherDashboard();});$('dashboard-home').addEventListener('click',()=>showEntry());$('dashboard-new').addEventListener('click',()=>showEntry('teacher'));$('dashboard-logout').addEventListener('click',()=>{clearTeacherAccess();dashboard.generation++;dashboard.loading=false;dashboardAuthView();});$('teacher-dashboard-button').addEventListener('click',showTeacherDashboard);
+    $('dashboard-refresh').addEventListener('click',()=>loadTeacherActivities());$('dashboard-more').addEventListener('click',()=>loadTeacherActivities(true));$('dashboard-search').addEventListener('input',renderTeacherActivities);$('dashboard-status').addEventListener('change',renderTeacherActivities);$('dashboard-activities').addEventListener('click',event=>{const button=event.target.closest('[data-open-history]');if(button)openTeacherActivity(button.dataset.openHistory);});
+    $('ranking-teacher-metrics').addEventListener('click',()=>{switchTab('operation');$('metrics-panel').scrollIntoView({block:'start'});$('metrics-team').focus({preventScroll:true});});
     $('join-code').addEventListener('input',updateSavedSession);
     $('join-form').addEventListener('submit',async event=>{event.preventDefault();const button=event.submitter;if(button.disabled)return;button.disabled=true;const code=$('join-code').value.trim().toUpperCase();try{const result=await request(`/api/activities/${encodeURIComponent(code)}/join`,{method:'POST',auth:false,body:{name:$('join-name').value.trim()}});saveSession({...result,code:result.code||code});await enterSession(result.code||code,result.token,result.snapshot);}catch(error){notify(error.message,true);}finally{button.disabled=false;}});
-    $('create-form').addEventListener('submit',async event=>{event.preventDefault();const button=event.submitter;if(button.disabled)return;button.disabled=true;try{const result=await request('/api/activities',{method:'POST',auth:false,body:{title:$('activity-title').value.trim(),password:$('teacher-password').value,maxIncoming:2,mode:$('activity-mode').value,bossDifficulty:$('initial-boss-difficulty').value}});saveSession(result);$('teacher-password').value='';await enterSession(result.code,result.token,result.snapshot);}catch(error){notify(error.message,true);}finally{button.disabled=false;}});
-    $('home-button').addEventListener('click',()=>{sessionGeneration++;clearTimeout(state.pollTimer);state.code='';state.snapshot=null;state.token='';state.lastServerAt=0;state.renderCache.clear();state.alertQueue=[];if($('player-alert').open)$('player-alert').close();document.body.dataset.effect='';show('effect-hud',false);show('effect-decoration',false);show('entry-view',true);show('arena-view',false);document.body.classList.remove('public-view');history.replaceState(null,'',location.pathname);try{$('join-code').value=localStorage.getItem('thor:lastActivity')||'';}catch{}updateSavedSession();updateTeacherSession();entryMode(null);});
+    $('create-form').addEventListener('submit',async event=>{event.preventDefault();const button=event.submitter;if(button.disabled)return;button.disabled=true;try{const result=await request('/api/activities',{method:'POST',authToken:dashboard.token,body:{title:$('activity-title').value.trim(),password:$('teacher-password').value,maxIncoming:2,mode:$('activity-mode').value,bossDifficulty:$('initial-boss-difficulty').value}});saveSession(result);$('teacher-password').value='';await enterSession(result.code,result.token,result.snapshot);}catch(error){if(error.status===401){clearTeacherAccess();show('teacher-password-field',teacherPasswordRequired);$('teacher-password').required=teacherPasswordRequired;}notify(error.message,true);}finally{button.disabled=false;}});
+    $('home-button').addEventListener('click',()=>showEntry());
     document.addEventListener('click',async event=>{const resume=event.target.closest('[data-resume]');if(resume){const code=resume.dataset.resume;const saved=localSession(code);try{await enterSession(code,saved.token);}catch(error){notify(error.message,true);}return;}const tab=event.target.closest('[data-tab]');if(tab){switchTab(tab.dataset.tab);return;}if(event.target.closest('[data-open-toolkit]')){switchTab('toolkit');return;}const role=event.target.closest('[data-role]');if(role){await mutate({type:'role',role:role.dataset.role});return;}const deletion=event.target.closest('[data-delete-team]');if(deletion){if(confirm('Desfazer este time e liberar seus integrantes?'))await mutate({type:'team-delete',teamId:deletion.dataset.deleteTeam});return;}const tool=event.target.closest('[data-command]');if(tool){if(tool.disabled)return;const result=await mutate({type:'command-guide',command:tool.dataset.command});if(result){fillCommand(tool.dataset.kind,tool.dataset.command);updateEnabled();}return;}const practiceTool=event.target.closest('[data-practice]');if(practiceTool){$('training-command').value=practiceTool.dataset.practice;$('training-command').focus();$('training-form').scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'center'});return;}const incident=event.target.closest('[data-incident]');if(incident){$('defense-incident').value=incident.dataset.incident;renderDefense();updateEnabled();}});
     $('participant-list').addEventListener('change',event=>{const input=event.target.closest('[data-member]');if(!input)return;if(input.checked){state.selectedMembers.add(input.dataset.member);}else state.selectedMembers.delete(input.dataset.member);setText('selected-count',`(${state.selectedMembers.size})`);state.renderCache.delete('participant-list');updateEnabled();});
     $('team-form').addEventListener('submit',async event=>{event.preventDefault();const result=await mutate({type:'team-create',name:$('team-name').value.trim(),memberIds:[...state.selectedMembers]});if(result){state.selectedMembers.clear();$('team-name').value='';renderTeacher();updateEnabled();}});
@@ -310,12 +376,14 @@
   }
   async function initialize() {
     setupTools();attachEvents();setInterval(updateClock,250);const params=new URLSearchParams(location.search);const code=(params.get('activity')||'').toUpperCase();$('join-code').value=code;updateSavedSession();updateTeacherSession();
+    try{const saved=JSON.parse(sessionStorage.getItem('thor:teacherDashboard')||'null');if(saved?.token&&saved.expiresAt>Date.now()){dashboard.token=saved.token;dashboard.expiresAt=saved.expiresAt;}}catch{}
     const cleanUrl=new URL(location.href);cleanUrl.searchParams.delete('password');cleanUrl.searchParams.delete('title');history.replaceState(null,'',cleanUrl);
-    try{const config=await request('/api/health',{auth:false});show('teacher-password-field',Boolean(config.teacherPasswordRequired));$('teacher-password').required=Boolean(config.teacherPasswordRequired);}catch{notify('Não foi possível conectar ao servidor. Atualize a página para tentar novamente.',true);}
+    try{const config=await request('/api/health',{auth:false});teacherPasswordRequired=Boolean(config.teacherPasswordRequired);show('teacher-password-field',teacherPasswordRequired);$('teacher-password').required=teacherPasswordRequired;show('dashboard-password-field',teacherPasswordRequired);$('dashboard-password').required=teacherPasswordRequired;show('dashboard-local-note',!teacherPasswordRequired);$('dashboard-login-button').disabled=false;}catch{notify('Não foi possível conectar ao servidor. Atualize a página para tentar novamente.',true);}
     $('join-form').querySelector('button[type="submit"]').disabled=false;$('create-form').querySelector('button[type="submit"]').disabled=false;
     entryMode(code?'student':['teacher','student'].includes(params.get('mode'))?params.get('mode'):null);
-    if(code && params.get('public')==='1'){try{await enterSession(code,'',null,true);}catch(error){notify(error.message,true);}}
-    else if(code){const saved=localSession(code);if(saved?.token)try{await enterSession(code,saved.token);}catch(error){notify(error.message,true);}}
+    if(params.get('mode')==='dashboard'){await showTeacherDashboard();}
+    else if(code && params.get('public')==='1'){try{await enterSession(code,'',null,true);}catch(error){notify(error.message,true);}}
+    else if(code){const saved=localSession(code);if(params.get('teacher')==='1'){if(dashboard.token){await openTeacherActivity(code);}else await showTeacherDashboard();}else if(saved?.token)try{await enterSession(code,saved.token);}catch(error){notify(error.message,true);}}
     else{try{$('join-code').value=localStorage.getItem('thor:lastActivity')||'';}catch{}updateSavedSession();}
   }
   initialize();

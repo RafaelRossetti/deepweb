@@ -19,6 +19,16 @@ Abra **http://localhost:3000** como professor. Sem `.env`, a criação de ativid
 
 Para representar vários alunos no mesmo computador, use perfis ou janelas anônimas independentes. Abas no mesmo perfil compartilham a sessão salva. Recarregar a página retoma a atividade neste navegador.
 
+## Dashboard do professor e atividades anteriores
+
+Na tela inicial, escolha **Sou professor** → **Acessar meu dashboard**. Use a mesma `TEACHER_PASSWORD` configurada no servidor. Sem senha configurada, esse acesso fica disponível somente pelo localhost.
+
+O dashboard lista as atividades salvas, das mais recentes às mais antigas, com situação, datas, participantes, equipes e a melhor pontuação das encerradas. Busque por nome ou código, filtre por situação e use **Carregar mais atividades** para consultar páginas anteriores. **Ver resultados** abre o ranking final; **Ver métricas por equipe e integrante** mostra capturas, defesas, pontos e participação individual. O botão **Meu dashboard** permite voltar ao histórico a partir da atividade.
+
+O acesso funciona em outro navegador mesmo sem a sessão original da atividade. A sessão do dashboard dura 12 horas e fica no armazenamento da aba, sem salvar a senha. As sessões antigas continuam válidas. A senha do professor dá acesso às atividades desta instalação; não há contas individuais de professores.
+
+O histórico usa o armazenamento já configurado: `.data/` no teste local ou Supabase na publicação. Mantenha a mesma pasta ou o mesmo projeto Supabase para encontrar atividades antigas. Não há migração SQL. Uma atividade cujo prazo venceu tem seu encerramento consolidado uma única vez ao consultar o histórico, preservando o ranking final para as próximas consultas.
+
 ## Jornada do modo original: Captura de PDFs
 
 1. Professor abre a atividade e compartilha o código.
